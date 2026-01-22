@@ -96,10 +96,11 @@ pub fn decode_rgba_into(
 - sig_coeff_flag proper H.265 context derivation
 
 ### In Progress
-- coded_sub_block_flag full context derivation
-- Debug remaining chroma bias (~170 avg vs expected ~128)
+- Debug remaining chroma bias (Cb=159, Cr=175 vs expected ~128)
 
 ### Pending
+- coded_sub_block_flag full context derivation (attempted, caused worse desync)
+- prev_csbf bit ordering fixed for sig_coeff_flag
 - Conformance window cropping
 - Deblocking filter
 - SAO (Sample Adaptive Offset)
@@ -109,25 +110,25 @@ pub fn decode_rgba_into(
 
 - Only I-slices supported (sufficient for HEIC still images)
 - No inter prediction (P/B slices)
-- Sub-block scan tables incomplete for TUs > 8x8
-- sig_coeff_flag context is simplified (doesn't use neighbor info)
-- coded_sub_block_flag context is simplified
+- coded_sub_block_flag context is simplified (proper derivation caused worse desync)
 
 ## Known Bugs
 
 ### CABAC Context Derivation (Partially Fixed)
 - **sig_coeff_flag:** ✅ Fixed with proper H.265 9.3.4.2.5 context derivation
-- **coded_sub_block_flag:** Still uses simplified single-context (needs fixing)
-- **Current status after sig_coeff_flag fix:**
+- **prev_csbf bit ordering:** ✅ Fixed (bit0=below, bit1=right per H.265)
+- **coded_sub_block_flag:** Uses simplified single-context (attempted proper derivation but caused worse desync)
+- **Current status after fixes:**
   - All 280 CTUs decode successfully
-  - Large coefficients reduced from 38 to 27
-  - Chroma averages stabilized (~170 vs impossible 367.6 before)
-  - RGB output no longer shows extreme artifacts
+  - Large coefficients: 22 (first at byte 1935, around CTU 8)
+  - Pixel average: 133 (improved)
+  - Chroma averages: Cb=159, Cr=175 (still too high, should be ~128)
 
 ### Remaining Chroma Bias
-- Chroma prediction averages ~170 instead of expected ~128
-- May be caused by remaining simplified coded_sub_block_flag context
-- Or accumulated error from early large coefficients at byte 298
+- Chroma averages Cb=159, Cr=175 instead of expected ~128
+- Pattern observed: CTU columns 0-3 have reasonable Cr (~124-135), columns 4+ have elevated values (183-230)
+- 22 large coefficients suggest CABAC desync starting around CTU 8
+- Simplified coded_sub_block_flag context may be causing gradual drift
 
 ### Other Issues
 - Output dimensions 1280x856 vs reference 1280x854 (missing conformance window cropping)
