@@ -19,6 +19,23 @@ use crate::error::HevcError;
 
 type Result<T> = core::result::Result<T, HevcError>;
 
+/// Chroma QP mapping table (H.265 Table 8-10)
+/// Maps qPi (0-57) to QpC for 8-bit video
+fn chroma_qp_mapping(qp_i: i32) -> i32 {
+    // Table 8-10: qPi to QpC mapping
+    // For qPi 0-29, QpC = qPi
+    // For qPi 30-57, QpC follows the table
+    static CHROMA_QP_TABLE: [i32; 58] = [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+        10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+        29, 30, 31, 32, 33, 33, 34, 34, 35, 35,
+        36, 36, 37, 37, 38, 39, 40, 41, 42, 43,
+        44, 45, 46, 47, 48, 49, 50, 51,
+    ];
+    CHROMA_QP_TABLE[qp_i.clamp(0, 57) as usize]
+}
+
 /// Decoding context for a slice
 pub struct SliceContext<'a> {
     /// Sequence parameter set
@@ -35,8 +52,12 @@ pub struct SliceContext<'a> {
     pub ctb_x: u32,
     /// Current CTB Y position (in CTB units)
     pub ctb_y: u32,
-    /// Current QP value
+    /// Current luma QP value
     pub qp_y: i32,
+    /// Current Cb QP value
+    pub qp_cb: i32,
+    /// Current Cr QP value
+    pub qp_cr: i32,
     /// Is CU QP delta coded flag
     pub is_cu_qp_delta_coded: bool,
     /// CU QP delta value
@@ -75,6 +96,18 @@ impl<'a> SliceContext<'a> {
             ctx[i].init(*init_val, slice_qp);
         }
 
+        // Calculate chroma QP values (H.265 Table 8-10 and section 8.6.1)
+        // qPi_Cb = qP_Y + pps_cb_qp_offset + slice_cb_qp_offset
+        // qPi_Cr = qP_Y + pps_cr_qp_offset + slice_cr_qp_offset
+        let qp_i_cb = slice_qp + pps.pps_cb_qp_offset as i32 + header.slice_cb_qp_offset as i32;
+        let qp_i_cr = slice_qp + pps.pps_cr_qp_offset as i32 + header.slice_cr_qp_offset as i32;
+
+        // Apply chroma QP mapping table (H.265 Table 8-10)
+        let qp_cb = chroma_qp_mapping(qp_i_cb.clamp(0, 57));
+        let qp_cr = chroma_qp_mapping(qp_i_cr.clamp(0, 57));
+
+        eprintln!("DEBUG: Chroma QP: qp_y={}, qp_cb={}, qp_cr={}", slice_qp, qp_cb, qp_cr);
+
         Ok(Self {
             sps,
             pps,
@@ -84,6 +117,8 @@ impl<'a> SliceContext<'a> {
             ctb_x: 0,
             ctb_y: 0,
             qp_y: slice_qp,
+            qp_cb,
+            qp_cr,
             is_cu_qp_delta_coded: false,
             cu_qp_delta: 0,
             cu_transquant_bypass_flag: false,
@@ -624,9 +659,15 @@ impl<'a> SliceContext<'a> {
         let mut coeffs = [0i16; 1024];
         coeffs[..num_coeffs].copy_from_slice(&coeff_buf.coeffs[..num_coeffs]);
 
-        let bit_depth = self.sps.bit_depth_y();
+        // Use component-specific QP for dequantization
+        let (qp, bit_depth) = match c_idx {
+            0 => (self.qp_y, self.sps.bit_depth_y()),
+            1 => (self.qp_cb, self.sps.bit_depth_c()),
+            2 => (self.qp_cr, self.sps.bit_depth_c()),
+            _ => (self.qp_y, self.sps.bit_depth_y()),
+        };
         let dequant_params = transform::DequantParams {
-            qp: self.qp_y,
+            qp,
             bit_depth,
             log2_tr_size: log2_size,
         };
@@ -647,9 +688,9 @@ impl<'a> SliceContext<'a> {
         let is_intra_4x4_luma = log2_size == 2 && c_idx == 0;
         transform::inverse_transform(&coeffs, &mut residual, size, bit_depth, is_intra_4x4_luma);
 
-        // DEBUG: Print residuals for first block
-        if x0 < 4 && y0 < 4 && c_idx == 0 {
-            eprintln!("DEBUG: residuals at ({},{}):", x0, y0);
+        // DEBUG: Print residuals for first blocks (all components)
+        if x0 < 4 && y0 < 4 {
+            eprintln!("DEBUG: residuals at ({},{}) c_idx={}:", x0, y0, c_idx);
             for y in 0..size.min(4) {
                 let row: Vec<i16> = (0..size.min(4)).map(|x| residual[y * size + x]).collect();
                 eprintln!("  {:?}", row);
@@ -658,6 +699,17 @@ impl<'a> SliceContext<'a> {
 
         // Add residual to prediction
         let max_val = (1i32 << bit_depth) - 1;
+
+        // DEBUG: Print first sample reconstruction for chroma
+        if x0 == 0 && y0 == 0 && c_idx > 0 {
+            let pred = match c_idx {
+                1 => frame.get_cb(0, 0) as i32,
+                2 => frame.get_cr(0, 0) as i32,
+                _ => 0,
+            };
+            let r = residual[0] as i32;
+            eprintln!("DEBUG: c_idx={} at (0,0): pred={}, residual={}, recon={}", c_idx, pred, r, (pred + r).clamp(0, max_val));
+        }
 
         for py in 0..size {
             for px in 0..size {

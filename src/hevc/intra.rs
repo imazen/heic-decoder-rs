@@ -59,9 +59,9 @@ pub fn predict_intra(
 
     fill_border_samples(frame, x, y, size, c_idx, &mut border, border_center);
 
-    // DEBUG: Print border samples for first block
-    if x == 0 && y == 0 && c_idx == 0 {
-        eprintln!("DEBUG: predict_intra at ({},{}) mode={:?} size={}", x, y, mode, size);
+    // DEBUG: Print border samples for first blocks
+    if x == 0 && y == 0 {
+        eprintln!("DEBUG: predict_intra at ({},{}) mode={:?} size={} c_idx={}", x, y, mode, size, c_idx);
         eprintln!("  border[-4..0]: {:?}", &border[border_center - 4..border_center]);
         eprintln!("  border[0..5]: {:?}", &border[border_center..border_center + 5]);
     }
@@ -177,6 +177,9 @@ fn fill_border_samples(
 
     // Reference sample substitution (H.265 8.4.4.2.2)
     // If any sample is unavailable, substitute from available samples
+    // NOTE: This uses 0 as a sentinel for "unavailable" which is technically a bug
+    // since 0 is a valid sample value. However, removing this breaks the decoder
+    // due to interactions with how the border array is initialized.
     reference_sample_substitution(border, center, size as usize);
 }
 
