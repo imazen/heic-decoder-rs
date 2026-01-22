@@ -225,15 +225,40 @@ pub fn decode_residual(
     // Max sub-block grid is 8x8 for 32x32 TU
     let mut coded_sb_flags = [[false; 8]; 8];
 
+    // Track c1 state across subblocks for ctxSet derivation
+    // Per libde265: c1 is set to 0 when any greater1_flag is 1 in the subblock,
+    // and this affects the ctxSet for the NEXT subblock.
+    // c1 is reset to 1 at the start of each subblock.
+    let mut last_subblock_c1_was_zero = false;
+    let mut first_subblock = true;
+
     // Decode coefficients
     for sb_idx in (0..=last_sb_idx).rev() {
         let (sb_x, sb_y) = scan_sub[sb_idx as usize];
+
+        // Calculate neighbor flags BEFORE decoding coded_sub_block_flag
+        // These are used for both coded_sub_block_flag and sig_coeff_flag contexts
+        // Per H.265: bit 0 = right neighbor coded, bit 1 = below neighbor coded
+        let csbf_neighbors = {
+            let right_coded = if (sb_x as usize + 1) < sb_width {
+                coded_sb_flags[sb_y as usize][sb_x as usize + 1]
+            } else {
+                false
+            };
+            let below_coded = if (sb_y as usize + 1) < sb_width {
+                coded_sb_flags[sb_y as usize + 1][sb_x as usize]
+            } else {
+                false
+            };
+            (if right_coded { 1 } else { 0 }) | (if below_coded { 2 } else { 0 })
+        };
 
         // Check if sub-block is coded
         // Middle sub-blocks need coded_sub_block_flag decoded
         // First (i=0) and last sub-blocks are always considered coded
         let (sb_coded, infer_sb_dc_sig) = if sb_idx > 0 && sb_idx < last_sb_idx {
-            let coded = decode_coded_sub_block_flag(cabac, ctx, c_idx)?;
+            // Use simplified context (without neighbor info) for now
+            let coded = decode_coded_sub_block_flag_simple(cabac, ctx, c_idx)?;
             // If sub-block is coded, we may need to infer DC later
             (coded, coded)
         } else {
@@ -245,20 +270,13 @@ pub fn decode_residual(
             coded_sb_flags[sb_y as usize][sb_x as usize] = true;
         }
 
-        // Calculate prevCsbf from neighbor sub-blocks
-        // Per H.265: prevCsbf = (csbf[xS+1][yS] << 1) + csbf[xS][yS+1]
-        // bit 0: below neighbor coded, bit 1: right neighbor coded
+        // prevCsbf for sig_coeff_flag context
+        // Per H.265 spec: bit 0 = below neighbor, bit 1 = right neighbor
+        // csbf_neighbors has: bit 0 = right, bit 1 = below (from our calculation)
+        // So we swap the bits to match spec semantics
         let prev_csbf = {
-            let right_coded = if (sb_x as usize + 1) < sb_width {
-                coded_sb_flags[sb_y as usize][sb_x as usize + 1]
-            } else {
-                false
-            };
-            let below_coded = if (sb_y as usize + 1) < sb_width {
-                coded_sb_flags[sb_y as usize + 1][sb_x as usize]
-            } else {
-                false
-            };
+            let right_coded = (csbf_neighbors & 1) != 0;
+            let below_coded = (csbf_neighbors & 2) != 0;
             (if below_coded { 1 } else { 0 }) | (if right_coded { 2 } else { 0 })
         };
 
@@ -336,8 +354,24 @@ pub fn decode_residual(
             continue;
         }
 
-        // Reset c1 context for each sub-block
+        // Compute ctxSet for this sub-block
+        // Per H.265/libde265:
+        // - DC block (sb_idx==0) or chroma (c_idx>0): base ctxSet = 0
+        // - Non-DC luma: base ctxSet = 2
+        // - If previous subblock ended with c1==0 (any greater1_flag was 1): ctxSet++
+        let mut ctx_set = if sb_idx == 0 || c_idx > 0 { 0u8 } else { 2 };
+        if !first_subblock && last_subblock_c1_was_zero {
+            ctx_set += 1;
+        }
+
+        // c1 tracks if any greater1_flag is 1 (for next subblock's ctxSet)
+        // Reset to 1 at start of each subblock
         let mut c1 = 1u8;
+
+        // greater1Ctx: context index component, reset to 1 each subblock
+        // Updated BEFORE decoding each coefficient (except first) based on PREVIOUS flag
+        let mut greater1_ctx = 1u8;
+        let mut last_greater1_flag = false;
 
         // Decode greater-1 flags (up to 8)
         let mut first_g1_idx: Option<u8> = None;
@@ -359,26 +393,45 @@ pub fn decode_residual(
                 continue;
             }
 
-            let g1 = decode_coeff_greater1_flag(cabac, ctx, c_idx, c1)?;
+            // Update greater1Ctx BEFORE decoding, using PREVIOUS flag
+            // (skip for first coefficient in subblock)
+            if g1_count > 0 {
+                if greater1_ctx > 0 {
+                    if last_greater1_flag {
+                        greater1_ctx = 0;
+                    } else {
+                        greater1_ctx = (greater1_ctx + 1).min(3);
+                    }
+                }
+            }
+
+            let g1 = decode_coeff_greater1_flag(cabac, ctx, c_idx, ctx_set, greater1_ctx)?;
+            last_greater1_flag = g1;
+
             if g1 {
                 coeff_values[n as usize] = 2;
                 g1_positions[n as usize] = true;
-                c1 = 0;
+                c1 = 0; // Track that a greater1_flag was 1
                 if first_g1_idx.is_none() {
                     first_g1_idx = Some(n);
                 } else {
                     // Non-first g1=1: base=2, needs remaining for values > 2
                     needs_remaining[n as usize] = true;
                 }
-            } else if c1 < 3 {
-                c1 = c1.saturating_add(1);
+            } else if c1 > 0 && c1 < 3 {
+                c1 += 1;
             }
             g1_count += 1;
         }
 
+        // Update state for next subblock
+        last_subblock_c1_was_zero = c1 == 0;
+        first_subblock = false;
+
         // Decode greater-2 flag (only for first coefficient with greater-1)
+        // Uses ctxSet directly (not greater1Ctx)
         if let Some(g1_idx) = first_g1_idx {
-            let g2 = decode_coeff_greater2_flag(cabac, ctx, c_idx)?;
+            let g2 = decode_coeff_greater2_flag(cabac, ctx, c_idx, ctx_set)?;
             if g2 {
                 coeff_values[g1_idx as usize] = 3;
                 needs_remaining[g1_idx as usize] = true;
@@ -647,18 +700,33 @@ fn decode_last_sig_coeff_prefix(
     Ok(prefix)
 }
 
-/// Decode coded_sub_block_flag
-/// Note: Full HEVC uses neighbor-dependent context (csbfCtx = csbf_right + csbf_below)
-/// This simplified version uses c_idx-based context only
-fn decode_coded_sub_block_flag(
+/// Decode coded_sub_block_flag (simplified - without neighbor context)
+/// This always uses context 0 or 2 (for chroma), which is a simplification
+fn decode_coded_sub_block_flag_simple(
     cabac: &mut CabacDecoder<'_>,
     ctx: &mut [ContextModel],
     c_idx: u8,
 ) -> Result<bool> {
-    // Context offset: 0-1 for luma, 2-3 for chroma
-    // Full spec uses: ctx_idx = base + min(csbf_right + csbf_below, 1) + c_idx_offset
     // Simplified: always use ctx 0 or 2
     let ctx_idx = context::CODED_SUB_BLOCK_FLAG + if c_idx > 0 { 2 } else { 0 };
+    Ok(cabac.decode_bin(&mut ctx[ctx_idx])? != 0)
+}
+
+/// Decode coded_sub_block_flag
+/// Per H.265 section 9.3.4.2.4, context depends on neighbor coded_sub_block_flags:
+/// - csbfCtx = (csbf_right | csbf_below) ? 1 : 0
+/// - ctx_idx = base + csbfCtx + c_idx_offset
+#[allow(dead_code)]
+fn decode_coded_sub_block_flag(
+    cabac: &mut CabacDecoder<'_>,
+    ctx: &mut [ContextModel],
+    c_idx: u8,
+    csbf_neighbors: u8, // bit 0 = right, bit 1 = below
+) -> Result<bool> {
+    // Context offset: 0-1 for luma, 2-3 for chroma
+    // csbfCtx = 1 if either neighbor is coded, else 0
+    let csbf_ctx = if csbf_neighbors != 0 { 1 } else { 0 };
+    let ctx_idx = context::CODED_SUB_BLOCK_FLAG + csbf_ctx + if c_idx > 0 { 2 } else { 0 };
     Ok(cabac.decode_bin(&mut ctx[ctx_idx])? != 0)
 }
 
@@ -685,7 +753,7 @@ static CTX_IDX_MAP_4X4: [u8; 16] = [
 /// - log2_size: TU size (2=4x4, 3=8x8, 4=16x16, 5=32x32)
 /// - c_idx: component (0=Y, 1=Cb, 2=Cr)
 /// - scan_idx: scan order (0=diagonal, 1=horizontal, 2=vertical)
-/// - prev_csbf: coded_sub_block_flag of neighbors (bit0=below, bit1=right per H.265)
+/// - prev_csbf: coded_sub_block_flag of neighbors (bit0=below, bit1=right - our convention)
 fn calc_sig_coeff_flag_ctx(
     x_c: u8,
     y_c: u8,
@@ -710,7 +778,7 @@ fn calc_sig_coeff_flag_ctx(
         let y_p = y_c & 3;
 
         // Base context from position and neighbor flags
-        // Per H.265 9.3.4.2.5: prevCsbf bit0=below, bit1=right
+        // Per H.265 spec Table 9-43: prevCsbf bit0=below, bit1=right
         let mut ctx = match prev_csbf {
             0 => {
                 // No coded neighbors: context based on position sum
@@ -793,25 +861,33 @@ fn decode_sig_coeff_flag(
 }
 
 /// Decode coeff_abs_level_greater1_flag
+/// Per H.265 9.3.4.2.6: context index = ctxSet * 4 + min(greater1Ctx, 3)
+/// Plus 16 for chroma (c_idx > 0)
 fn decode_coeff_greater1_flag(
     cabac: &mut CabacDecoder<'_>,
     ctx: &mut [ContextModel],
     c_idx: u8,
-    c1: u8,
+    ctx_set: u8,
+    greater1_ctx: u8,
 ) -> Result<bool> {
     let ctx_idx = context::COEFF_ABS_LEVEL_GREATER1_FLAG
         + if c_idx > 0 { 16 } else { 0 }
-        + (c1 as usize).min(3);
+        + (ctx_set as usize) * 4
+        + (greater1_ctx as usize).min(3);
     Ok(cabac.decode_bin(&mut ctx[ctx_idx])? != 0)
 }
 
 /// Decode coeff_abs_level_greater2_flag
+/// Per H.265: context index = ctxSet + (c_idx > 0 ? 4 : 0)
 fn decode_coeff_greater2_flag(
     cabac: &mut CabacDecoder<'_>,
     ctx: &mut [ContextModel],
     c_idx: u8,
+    ctx_set: u8,
 ) -> Result<bool> {
-    let ctx_idx = context::COEFF_ABS_LEVEL_GREATER2_FLAG + if c_idx > 0 { 4 } else { 0 };
+    let ctx_idx = context::COEFF_ABS_LEVEL_GREATER2_FLAG
+        + if c_idx > 0 { 4 } else { 0 }
+        + ctx_set as usize;
     Ok(cabac.decode_bin(&mut ctx[ctx_idx])? != 0)
 }
 

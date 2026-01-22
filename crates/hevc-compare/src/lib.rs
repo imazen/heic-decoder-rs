@@ -17,12 +17,21 @@ pub struct CabacState {
     bitstream_end: *const u8,
 }
 
+#[repr(C)]
+pub struct CppContextModel {
+    state: u8,
+    mps: u8,
+}
+
 unsafe extern "C" {
     fn cabac_init(state: *mut CabacState, data: *const u8, length: c_int);
     fn cabac_decode_bypass(state: *mut CabacState) -> c_int;
     fn cabac_decode_bypass_bits(state: *mut CabacState, num_bits: c_int) -> u32;
     fn cabac_decode_coeff_abs_level_remaining(state: *mut CabacState, rice_param: c_int) -> c_int;
     fn cabac_get_state(state: *const CabacState, range: *mut u32, value: *mut u32, bits_needed: *mut c_int);
+    fn context_init(ctx: *mut CppContextModel, init_value: u8, slice_qp: c_int);
+    fn context_get_state(ctx: *const CppContextModel, state: *mut u8, mps: *mut u8);
+    fn cabac_decode_bin(decoder: *mut CabacState, model: *mut CppContextModel) -> c_int;
 }
 
 /// C++ CABAC decoder wrapper
@@ -75,6 +84,38 @@ impl CppCabac {
             cabac_get_state(&self.state, &mut range, &mut value, &mut bits_needed);
         }
         (range, value, bits_needed)
+    }
+
+    pub fn decode_bin(&mut self, ctx: &mut CppContextModel) -> u32 {
+        unsafe { cabac_decode_bin(&mut self.state, ctx) as u32 }
+    }
+}
+
+/// C++ context model wrapper
+pub struct CppContext {
+    model: CppContextModel,
+}
+
+impl CppContext {
+    pub fn new(init_value: u8, slice_qp: i32) -> Self {
+        let mut model = CppContextModel { state: 0, mps: 0 };
+        unsafe {
+            context_init(&mut model, init_value, slice_qp as c_int);
+        }
+        Self { model }
+    }
+
+    pub fn get_state(&self) -> (u8, u8) {
+        let mut state = 0u8;
+        let mut mps = 0u8;
+        unsafe {
+            context_get_state(&self.model, &mut state, &mut mps);
+        }
+        (state, mps)
+    }
+
+    pub fn model_mut(&mut self) -> &mut CppContextModel {
+        &mut self.model
     }
 }
 
@@ -169,6 +210,126 @@ impl<'a> RustCabac<'a> {
 
     pub fn get_state(&self) -> (u32, u32, i32) {
         (self.range, self.value, self.bits_needed)
+    }
+
+    /// Read a single bit (for renormalization)
+    fn read_bit(&mut self) {
+        self.value <<= 1;
+        self.bits_needed += 1;
+
+        if self.bits_needed >= 0 {
+            if self.pos < self.data.len() {
+                self.bits_needed = -8;
+                self.value |= self.data[self.pos] as u32;
+                self.pos += 1;
+            } else {
+                self.bits_needed = -8;
+            }
+        }
+    }
+
+    /// Renormalize the decoder state
+    fn renormalize(&mut self) {
+        while self.range < 256 {
+            self.range <<= 1;
+            self.read_bit();
+        }
+    }
+
+    /// Decode a context-coded bin
+    pub fn decode_bin(&mut self, ctx: &mut RustContext) -> u32 {
+        let q_range_idx = (self.range >> 6) & 3;
+        let lps_range = LPS_TABLE[ctx.state as usize][q_range_idx as usize] as u32;
+
+        self.range -= lps_range;
+
+        let scaled_range = self.range << 7;
+
+        let bin_val;
+        if self.value < scaled_range {
+            // MPS path
+            bin_val = ctx.mps as u32;
+            ctx.state = STATE_TRANS_MPS[ctx.state as usize];
+        } else {
+            // LPS path
+            bin_val = (1 - ctx.mps) as u32;
+            self.value -= scaled_range;
+            self.range = lps_range;
+
+            if ctx.state == 0 {
+                ctx.mps = 1 - ctx.mps;
+            }
+            ctx.state = STATE_TRANS_LPS[ctx.state as usize];
+        }
+
+        self.renormalize();
+        bin_val
+    }
+}
+
+/// CABAC tables from H.265 spec
+static LPS_TABLE: [[u8; 4]; 64] = [
+    [128, 176, 208, 240], [128, 167, 197, 227], [128, 158, 187, 216], [123, 150, 178, 205],
+    [116, 142, 169, 195], [111, 135, 160, 185], [105, 128, 152, 175], [100, 122, 144, 166],
+    [95, 116, 137, 158], [90, 110, 130, 150], [85, 104, 123, 142], [81, 99, 117, 135],
+    [77, 94, 111, 128], [73, 89, 105, 122], [69, 85, 100, 116], [66, 80, 95, 110],
+    [62, 76, 90, 104], [59, 72, 86, 99], [56, 69, 81, 94], [53, 65, 77, 89],
+    [51, 62, 73, 85], [48, 59, 69, 80], [46, 56, 66, 76], [43, 53, 63, 72],
+    [41, 50, 59, 69], [39, 48, 56, 65], [37, 45, 54, 62], [35, 43, 51, 59],
+    [33, 41, 48, 56], [32, 39, 46, 53], [30, 37, 43, 50], [29, 35, 41, 48],
+    [27, 33, 39, 45], [26, 31, 37, 43], [24, 30, 35, 41], [23, 28, 33, 39],
+    [22, 27, 32, 37], [21, 26, 30, 35], [20, 24, 29, 33], [19, 23, 27, 31],
+    [18, 22, 26, 30], [17, 21, 25, 28], [16, 20, 23, 27], [15, 19, 22, 25],
+    [14, 18, 21, 24], [14, 17, 20, 23], [13, 16, 19, 22], [12, 15, 18, 21],
+    [12, 14, 17, 20], [11, 14, 16, 19], [11, 13, 15, 18], [10, 12, 15, 17],
+    [10, 12, 14, 16], [9, 11, 13, 15], [9, 11, 12, 14], [8, 10, 12, 14],
+    [8, 9, 11, 13], [7, 9, 11, 12], [7, 9, 10, 12], [7, 8, 10, 11],
+    [6, 8, 9, 11], [6, 7, 9, 10], [6, 7, 8, 9], [2, 2, 2, 2],
+];
+
+static STATE_TRANS_MPS: [u8; 64] = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+    33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
+    49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 62, 63,
+];
+
+static STATE_TRANS_LPS: [u8; 64] = [
+    0, 0, 1, 2, 2, 4, 4, 5, 6, 7, 8, 9, 9, 11, 11, 12,
+    13, 13, 15, 15, 16, 16, 18, 18, 19, 19, 21, 21, 22, 22, 23, 24,
+    24, 25, 26, 26, 27, 27, 28, 29, 29, 30, 30, 30, 31, 32, 32, 33,
+    33, 33, 34, 34, 35, 35, 35, 36, 36, 36, 37, 37, 37, 38, 38, 63,
+];
+
+/// Rust context model
+pub struct RustContext {
+    pub state: u8,
+    pub mps: u8,
+}
+
+impl RustContext {
+    pub fn new(init_value: u8, slice_qp: i32) -> Self {
+        let slope = (init_value >> 4) as i32 * 5 - 45;
+        let offset = ((init_value & 15) << 3) as i32 - 16;
+
+        let init_state = ((slope * (slice_qp - 16)) >> 4) + offset;
+        let init_state = init_state.clamp(1, 126);
+
+        if init_state >= 64 {
+            Self {
+                state: (init_state - 64) as u8,
+                mps: 1,
+            }
+        } else {
+            Self {
+                state: (63 - init_state) as u8,
+                mps: 0,
+            }
+        }
+    }
+
+    pub fn get_state(&self) -> (u8, u8) {
+        (self.state, self.mps)
     }
 }
 
@@ -323,6 +484,147 @@ mod tests {
                     "State mismatch after decode {}: C++=({},{},{}) Rust=({},{},{})",
                     i, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
             }
+        }
+    }
+
+    #[test]
+    fn test_context_init_matches() {
+        // Test context initialization for various init values and QPs
+        for init_value in [111u8, 125, 140, 153, 179, 154, 139] {
+            for slice_qp in [20, 26, 30, 40] {
+                let cpp_ctx = CppContext::new(init_value, slice_qp);
+                let rust_ctx = RustContext::new(init_value, slice_qp);
+
+                let (cpp_state, cpp_mps) = cpp_ctx.get_state();
+                let (rust_state, rust_mps) = rust_ctx.get_state();
+
+                assert_eq!((cpp_state, cpp_mps), (rust_state, rust_mps),
+                    "Context init mismatch for init_value={}, qp={}: C++=({},{}) Rust=({},{})",
+                    init_value, slice_qp, cpp_state, cpp_mps, rust_state, rust_mps);
+            }
+        }
+    }
+
+    #[test]
+    fn test_context_coded_bin_matches() {
+        // Test context-coded bin decoding
+        // Use init_value 154 (a common default) and QP 26
+        let init_value = 154u8;
+        let slice_qp = 26;
+
+        let mut cpp_cabac = CppCabac::new(TEST_DATA);
+        let mut rust_cabac = RustCabac::new(TEST_DATA);
+
+        let mut cpp_ctx = CppContext::new(init_value, slice_qp);
+        let mut rust_ctx = RustContext::new(init_value, slice_qp);
+
+        // Decode 50 context-coded bins
+        for i in 0..50 {
+            let (cpp_r, cpp_v, cpp_b) = cpp_cabac.get_state();
+            let (rust_r, rust_v, rust_b) = rust_cabac.get_state();
+            let (cpp_state, cpp_mps) = cpp_ctx.get_state();
+            let (rust_state, rust_mps) = rust_ctx.get_state();
+
+            let cpp_bin = cpp_cabac.decode_bin(cpp_ctx.model_mut());
+            let rust_bin = rust_cabac.decode_bin(&mut rust_ctx);
+
+            assert_eq!(cpp_bin, rust_bin,
+                "Bin {} mismatch: C++={} Rust={}\n\
+                 Before decode: C++ cabac=({},{},{}) ctx=({},{}) | Rust cabac=({},{},{}) ctx=({},{})",
+                i, cpp_bin, rust_bin,
+                cpp_r, cpp_v, cpp_b, cpp_state, cpp_mps,
+                rust_r, rust_v, rust_b, rust_state, rust_mps);
+
+            // Also verify state after decode
+            let (cpp_r2, cpp_v2, cpp_b2) = cpp_cabac.get_state();
+            let (rust_r2, rust_v2, rust_b2) = rust_cabac.get_state();
+            let (cpp_state2, cpp_mps2) = cpp_ctx.get_state();
+            let (rust_state2, rust_mps2) = rust_ctx.get_state();
+
+            assert_eq!((cpp_r2, cpp_v2, cpp_b2), (rust_r2, rust_v2, rust_b2),
+                "CABAC state mismatch after bin {}: C++=({},{},{}) Rust=({},{},{})",
+                i, cpp_r2, cpp_v2, cpp_b2, rust_r2, rust_v2, rust_b2);
+
+            assert_eq!((cpp_state2, cpp_mps2), (rust_state2, rust_mps2),
+                "Context state mismatch after bin {}: C++=({},{}) Rust=({},{})",
+                i, cpp_state2, cpp_mps2, rust_state2, rust_mps2);
+        }
+    }
+
+    #[test]
+    fn test_multiple_contexts() {
+        // Test with multiple different contexts being used
+        // This simulates real coefficient decoding where different contexts are used
+        let init_values = [111u8, 125, 140, 153, 154];
+        let slice_qp = 26;
+
+        let mut cpp_cabac = CppCabac::new(TEST_DATA);
+        let mut rust_cabac = RustCabac::new(TEST_DATA);
+
+        let mut cpp_ctxs: Vec<_> = init_values.iter()
+            .map(|&iv| CppContext::new(iv, slice_qp))
+            .collect();
+        let mut rust_ctxs: Vec<_> = init_values.iter()
+            .map(|&iv| RustContext::new(iv, slice_qp))
+            .collect();
+
+        // Decode 100 bins, cycling through contexts
+        for i in 0..100 {
+            let ctx_idx = i % init_values.len();
+
+            let cpp_bin = cpp_cabac.decode_bin(cpp_ctxs[ctx_idx].model_mut());
+            let rust_bin = rust_cabac.decode_bin(&mut rust_ctxs[ctx_idx]);
+
+            assert_eq!(cpp_bin, rust_bin,
+                "Bin {} (ctx {}) mismatch: C++={} Rust={}",
+                i, ctx_idx, cpp_bin, rust_bin);
+
+            // Verify states match
+            let (cpp_r, cpp_v, cpp_b) = cpp_cabac.get_state();
+            let (rust_r, rust_v, rust_b) = rust_cabac.get_state();
+
+            assert_eq!((cpp_r, cpp_v, cpp_b), (rust_r, rust_v, rust_b),
+                "CABAC state mismatch after bin {}: C++=({},{},{}) Rust=({},{},{})",
+                i, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
+        }
+    }
+
+    #[test]
+    fn test_mixed_context_and_bypass() {
+        // Test interleaved context-coded and bypass bins
+        // This is how real coefficient decoding works
+        let init_value = 154u8;
+        let slice_qp = 26;
+
+        let mut cpp_cabac = CppCabac::new(TEST_DATA);
+        let mut rust_cabac = RustCabac::new(TEST_DATA);
+
+        let mut cpp_ctx = CppContext::new(init_value, slice_qp);
+        let mut rust_ctx = RustContext::new(init_value, slice_qp);
+
+        for i in 0..20 {
+            // Decode 3 context-coded bins
+            for j in 0..3 {
+                let cpp_bin = cpp_cabac.decode_bin(cpp_ctx.model_mut());
+                let rust_bin = rust_cabac.decode_bin(&mut rust_ctx);
+                assert_eq!(cpp_bin, rust_bin,
+                    "Iteration {}, context bin {}: C++={} Rust={}", i, j, cpp_bin, rust_bin);
+            }
+
+            // Decode 2 bypass bins
+            for j in 0..2 {
+                let cpp_bit = cpp_cabac.decode_bypass();
+                let rust_bit = rust_cabac.decode_bypass();
+                assert_eq!(cpp_bit, rust_bit,
+                    "Iteration {}, bypass bin {}: C++={} Rust={}", i, j, cpp_bit, rust_bit);
+            }
+
+            // Verify states match after mixed decoding
+            let (cpp_r, cpp_v, cpp_b) = cpp_cabac.get_state();
+            let (rust_r, rust_v, rust_b) = rust_cabac.get_state();
+            assert_eq!((cpp_r, cpp_v, cpp_b), (rust_r, rust_v, rust_b),
+                "State mismatch after iteration {}: C++=({},{},{}) Rust=({},{},{})",
+                i, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
         }
     }
 }
