@@ -123,6 +123,11 @@ impl ContextModel {
         Self { state, mps }
     }
 
+    /// Get the current context state and MPS
+    pub fn get_state(&self) -> (u8, u8) {
+        (self.state, self.mps)
+    }
+
     /// Initialize context for a given slice QP
     pub fn init(&mut self, init_value: u8, slice_qp: i32) {
         let slope = (init_value >> 4) as i32 * 5 - 45;

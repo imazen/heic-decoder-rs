@@ -266,8 +266,8 @@ pub fn decode_residual(
         // Middle sub-blocks need coded_sub_block_flag decoded
         // First (i=0) and last sub-blocks are always considered coded
         let (sb_coded, infer_sb_dc_sig) = if sb_idx > 0 && sb_idx < last_sb_idx {
-            // Use simplified context (without neighbor info) for now
-            let coded = decode_coded_sub_block_flag_simple(cabac, ctx, c_idx)?;
+            // Use proper context derivation with neighbor info
+            let coded = decode_coded_sub_block_flag(cabac, ctx, c_idx, csbf_neighbors)?;
             // If sub-block is coded, we may need to infer DC later
             (coded, coded)
         } else {
@@ -280,14 +280,9 @@ pub fn decode_residual(
         }
 
         // prevCsbf for sig_coeff_flag context
-        // Per H.265 spec: bit 0 = below neighbor, bit 1 = right neighbor
-        // csbf_neighbors has: bit 0 = right, bit 1 = below (from our calculation)
-        // So we swap the bits to match spec semantics
-        let prev_csbf = {
-            let right_coded = (csbf_neighbors & 1) != 0;
-            let below_coded = (csbf_neighbors & 2) != 0;
-            (if below_coded { 1 } else { 0 }) | (if right_coded { 2 } else { 0 })
-        };
+        // Per libde265: bit 0 = right neighbor, bit 1 = below neighbor
+        // csbf_neighbors already has the correct bit ordering
+        let prev_csbf = csbf_neighbors;
 
         if !sb_coded {
             continue;
@@ -820,7 +815,7 @@ fn calc_sig_coeff_flag_ctx(
         let y_p = y_c & 3;
 
         // Base context from position and neighbor flags
-        // Per H.265 spec Table 9-43: prevCsbf bit0=below, bit1=right
+        // Per libde265: prevCsbf bit0=right, bit1=below
         let mut ctx = match prev_csbf {
             0 => {
                 // No coded neighbors: context based on position sum
@@ -833,7 +828,7 @@ fn calc_sig_coeff_flag_ctx(
                 }
             }
             1 => {
-                // Below neighbor coded (bit0=1): context based on y position
+                // Right neighbor coded (bit0=1): context based on y position
                 if y_p == 0 {
                     2
                 } else if y_p == 1 {
@@ -843,7 +838,7 @@ fn calc_sig_coeff_flag_ctx(
                 }
             }
             2 => {
-                // Right neighbor coded (bit1=1): context based on x position
+                // Below neighbor coded (bit1=1): context based on x position
                 if x_p == 0 {
                     2
                 } else if x_p == 1 {

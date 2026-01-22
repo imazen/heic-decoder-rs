@@ -589,6 +589,154 @@ mod tests {
         }
     }
 
+    /// Test with actual slice data from example.heic
+    /// The slice data starts at the specified bytes
+    #[test]
+    fn test_real_slice_data() {
+        // First 32 bytes of slice data from example.heic
+        // (after slice header, at CABAC data start)
+        let slice_data: &[u8] = &[
+            0x49, 0xc0, 0xc2, 0xc4, 0x92, 0x61, 0x0c, 0x00,
+            0x16, 0xcc, 0xbe, 0x77, 0x82, 0x8c, 0xcb, 0xfa,
+            0x93, 0x5f, 0xb2, 0x6a, 0x65, 0x34, 0xe6, 0xf8,
+            0xd3, 0xa0, 0x76, 0xcc, 0x39, 0xe8, 0xe0, 0xac,
+        ];
+
+        let mut cpp = CppCabac::new(slice_data);
+        let mut rust = RustCabac::new(slice_data);
+
+        // Verify initial state matches
+        let (cpp_r, cpp_v, cpp_b) = cpp.get_state();
+        let (rust_r, rust_v, rust_b) = rust.get_state();
+        println!("Initial state: C++=({},{},{}) Rust=({},{},{})",
+            cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
+        assert_eq!((cpp_r, cpp_v, cpp_b), (rust_r, rust_v, rust_b),
+            "Initial state mismatch");
+
+        // Decode 200 bypass bits and compare
+        for i in 0..200 {
+            let (cpp_r, cpp_v, cpp_b) = cpp.get_state();
+            let (rust_r, rust_v, rust_b) = rust.get_state();
+
+            let cpp_bit = cpp.decode_bypass();
+            let rust_bit = rust.decode_bypass();
+
+            if cpp_bit != rust_bit {
+                panic!("Bypass {} mismatch: C++={} Rust={}\n\
+                        Before: C++=({},{},{}) Rust=({},{},{})",
+                    i, cpp_bit, rust_bit, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
+            }
+
+            let (cpp_r2, cpp_v2, cpp_b2) = cpp.get_state();
+            let (rust_r2, rust_v2, rust_b2) = rust.get_state();
+
+            if (cpp_r2, cpp_v2, cpp_b2) != (rust_r2, rust_v2, rust_b2) {
+                panic!("State after bypass {} mismatch:\n\
+                        C++=({},{},{}) Rust=({},{},{})",
+                    i, cpp_r2, cpp_v2, cpp_b2, rust_r2, rust_v2, rust_b2);
+            }
+        }
+        println!("All 200 bypass bits match!");
+    }
+
+    /// Test a realistic coefficient decode sequence
+    /// Uses context indices and operations similar to actual TU decode
+    #[test]
+    fn test_realistic_coeff_decode_sequence() {
+        // Slice data from example.heic
+        let slice_data: &[u8] = &[
+            0x49, 0xc0, 0xc2, 0xc4, 0x92, 0x61, 0x0c, 0x00,
+            0x16, 0xcc, 0xbe, 0x77, 0x82, 0x8c, 0xcb, 0xfa,
+            0x93, 0x5f, 0xb2, 0x6a, 0x65, 0x34, 0xe6, 0xf8,
+            0xd3, 0xa0, 0x76, 0xcc, 0x39, 0xe8, 0xe0, 0xac,
+            0x4d, 0x7e, 0xc9, 0xa9, 0x95, 0xd3, 0x9b, 0xe3,
+            0x4e, 0x81, 0xdb, 0x30, 0xe7, 0xa3, 0x82, 0xb1,
+        ];
+
+        let slice_qp = 17;
+
+        let mut cpp = CppCabac::new(slice_data);
+        let mut rust = RustCabac::new(slice_data);
+
+        // Initialize contexts for sig_coeff_flag (init_values for SIG_COEFF_FLAG)
+        // Using first 16 contexts with their actual init values
+        let sig_coeff_init: [u8; 16] = [
+            111, 111, 125, 110, 110, 94, 124, 108,
+            124, 107, 125, 141, 179, 153, 125, 107,
+        ];
+
+        let mut cpp_ctxs: Vec<_> = sig_coeff_init.iter()
+            .map(|&iv| CppContext::new(iv, slice_qp))
+            .collect();
+        let mut rust_ctxs: Vec<_> = sig_coeff_init.iter()
+            .map(|&iv| RustContext::new(iv, slice_qp))
+            .collect();
+
+        // Simulate coefficient decoding pattern:
+        // - Decode context-coded sig_coeff_flag
+        // - Decode context-coded greater1_flag
+        // - Decode bypass sign bits
+        // - Decode bypass coeff_abs_level_remaining
+
+        println!("Simulating coefficient decode sequence...");
+
+        for iteration in 0..20 {
+            // Decode 4 sig_coeff_flags using different contexts
+            for ctx_offset in 0..4 {
+                let ctx_idx = (iteration * 3 + ctx_offset) % 16;
+
+                let (cpp_r, cpp_v, cpp_b) = cpp.get_state();
+                let (rust_r, rust_v, rust_b) = rust.get_state();
+
+                let cpp_bin = cpp.decode_bin(cpp_ctxs[ctx_idx].model_mut());
+                let rust_bin = rust.decode_bin(&mut rust_ctxs[ctx_idx]);
+
+                if cpp_bin != rust_bin {
+                    let (cpp_state, cpp_mps) = cpp_ctxs[ctx_idx].get_state();
+                    let (rust_state, rust_mps) = rust_ctxs[ctx_idx].get_state();
+                    panic!("Iteration {}, sig_coeff ctx {}: C++={} Rust={}\n\
+                            Before: C++=({},{},{}) Rust=({},{},{})\n\
+                            Context after: C++=({},{}) Rust=({},{})",
+                        iteration, ctx_idx, cpp_bin, rust_bin,
+                        cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b,
+                        cpp_state, cpp_mps, rust_state, rust_mps);
+                }
+            }
+
+            // Decode 2 bypass sign bits
+            for _ in 0..2 {
+                let cpp_bit = cpp.decode_bypass();
+                let rust_bit = rust.decode_bypass();
+                assert_eq!(cpp_bit, rust_bit, "Sign bypass mismatch at iteration {}", iteration);
+            }
+
+            // Decode coeff_abs_level_remaining
+            let rice_param = (iteration % 5) as u8;
+            let cpp_remaining = cpp.decode_coeff_abs_level_remaining(rice_param);
+            let rust_remaining = rust.decode_coeff_abs_level_remaining(rice_param);
+
+            if cpp_remaining != rust_remaining {
+                let (cpp_r, cpp_v, cpp_b) = cpp.get_state();
+                let (rust_r, rust_v, rust_b) = rust.get_state();
+                panic!("coeff_remaining mismatch at iteration {}, rice={}:\n\
+                        C++={} Rust={}\n\
+                        State after: C++=({},{},{}) Rust=({},{},{})",
+                    iteration, rice_param, cpp_remaining, rust_remaining,
+                    cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
+            }
+
+            // Verify state still matches
+            let (cpp_r, cpp_v, cpp_b) = cpp.get_state();
+            let (rust_r, rust_v, rust_b) = rust.get_state();
+            if (cpp_r, cpp_v, cpp_b) != (rust_r, rust_v, rust_b) {
+                panic!("State diverged at iteration {}: C++=({},{},{}) Rust=({},{},{})",
+                    iteration, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
+            }
+        }
+
+        println!("All 20 iterations matched!");
+    }
+
     #[test]
     fn test_mixed_context_and_bypass() {
         // Test interleaved context-coded and bypass bins

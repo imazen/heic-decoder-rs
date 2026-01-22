@@ -107,36 +107,35 @@ pub fn decode_rgba_into(
 
 - Only I-slices supported (sufficient for HEIC still images)
 - No inter prediction (P/B slices)
-- coded_sub_block_flag context is simplified (proper derivation caused worse desync)
+- CABAC desync causes early decode_terminate and corrupted coefficients
 
 ## Known Bugs
 
-### CABAC Context Derivation (Mostly Fixed)
+### CABAC Context Derivation (Partially Fixed)
 - **sig_coeff_flag:** ✅ Fixed with proper H.265 9.3.4.2.5 context derivation
-- **prev_csbf bit ordering:** ✅ Fixed (bit0=below, bit1=right per H.265)
+- **prev_csbf bit ordering:** ✅ FIXED (2026-01-22) - bit0=right, bit1=below per libde265
+  - Previous code incorrectly swapped bits (claimed H.265 spec was opposite)
+  - Fix moved first corruption from byte 124 to byte 4481 (35x later)
 - **greater1_flag:** ✅ Fixed with ctxSet*4 + greater1Ctx formula per H.265
 - **greater2_flag:** ✅ Fixed to use ctxSet (0-3) instead of always 0
-- **coded_sub_block_flag:** Uses simplified single-context (proper derivation caused worse desync)
+- **coded_sub_block_flag:** Now using proper neighbor-based context derivation
 - **Current status after fixes (2026-01-22):**
-  - All 280 CTUs decode successfully
-  - Large coefficients (>500): 24 edge cases from simplified context handling
+  - Decodes 109/280 CTUs (decode_terminate triggers early due to CABAC desync)
+  - Large coefficients (>500): 19 starting at byte 4481
   - Conformance window cropping implemented (1280x854 output)
+  - Note: With wrong prev_csbf, decoded all 280 CTUs but with worse corruption
 
 ### SSIM2 Comparison Results (2026-01-22)
 
 Comparison against reference decoder (heic-wasm-rs / libheif):
-- **SSIM2 score: -1082** (very poor, >90 is imperceptible, >70 is good)
-- **Average pixel difference: 87** (target: <5 for good quality)
-- **Max pixel difference: 255** (some pixels completely wrong)
-- **Histogram:** Only 32.9% of pixels within 50 units of reference
-
-The 24 large coefficients from CABAC desync are corrupting the image significantly.
-Visual comparison images written to `/tmp/reference.ppm`, `/tmp/our_decoder.ppm`, `/tmp/difference.ppm`.
+- **SSIM2 score: -1097** (very poor, >90 is imperceptible, >70 is good)
+- First corruption at byte 4481 (moved from byte 124 after prev_csbf fix)
+- 19 large coefficients (>500) causing image corruption
 
 - **last_significant_coeff_prefix context:**
   - Using flat ctxOffset=0 for luma instead of size-dependent offset
   - The H.265 correct approach (ctxOffset = 3*(log2Size-2) + ((log2Size-1)>>2)) causes early termination at CTU 67
-  - This suggests desync is present but masked by the simpler context derivation
+  - This suggests additional desync is present but masked by the simpler context derivation
 
 ### Remaining Chroma Bias - Root Cause Analysis (2026-01-22)
 
