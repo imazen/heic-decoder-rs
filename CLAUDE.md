@@ -114,15 +114,23 @@ pub fn decode_rgba_into(
 
 ## Known Bugs
 
-### CABAC Context Derivation (Partially Fixed)
+### CABAC Context Derivation (Mostly Fixed)
 - **sig_coeff_flag:** ✅ Fixed with proper H.265 9.3.4.2.5 context derivation
 - **prev_csbf bit ordering:** ✅ Fixed (bit0=below, bit1=right per H.265)
-- **coded_sub_block_flag:** Uses simplified single-context (attempted proper derivation but caused worse desync)
-- **Current status after fixes:**
+- **greater1_flag:** ✅ Fixed with ctxSet*4 + greater1Ctx formula per H.265
+- **greater2_flag:** ✅ Fixed to use ctxSet (0-3) instead of always 0
+- **coded_sub_block_flag:** Uses simplified single-context (proper derivation caused worse desync)
+- **Current status after fixes (2026-01-22):**
   - All 280 CTUs decode successfully
-  - Large coefficients: 22 (first at byte 1935, around CTU 8)
-  - Pixel average: 133 (improved)
-  - Chroma averages: Cb=159, Cr=175 (still too high, should be ~128)
+  - Large coefficients (>500): 24 (first at call #258, byte 1421)
+  - High coefficients (>100): many, first at call #8, byte 55 (value=-175)
+  - Pixel average: 160
+  - Chroma averages: Cb=161, Cr=173 (improved from 198/210, target ~128)
+
+- **last_significant_coeff_prefix context:**
+  - Using flat ctxOffset=0 for luma instead of size-dependent offset
+  - The H.265 correct approach (ctxOffset = 3*(log2Size-2) + ((log2Size-1)>>2)) causes early termination at CTU 67
+  - This suggests desync is present but masked by the simpler context derivation
 
 ### Remaining Chroma Bias - Root Cause Analysis (2026-01-22)
 
@@ -152,7 +160,13 @@ pub fn decode_rgba_into(
 - `residual.rs:801-813` - coeff_abs_level_remaining with large prefix
 - `ctu.rs:722-725` - Coefficient buffer at (104,0) showing [0, -9, 1064, 4, ...]
 
-**Next step:** Compare our CABAC output against libde265 at byte 2199 to verify if state (356,355) is correct for this bitstream.
+**Investigation update (2026-01-22):**
+- First high coefficient (>100) appears at call #8 (value=-175), byte 55
+- First large coefficient (>500) appears at call #258 (value=514), byte 1421
+- Rice parameter reaches max (4) due to accumulating high coefficients
+- Pattern suggests bitstream desync starting very early
+
+**Next step:** Create comparison test with hevc-compare crate to compare our CABAC output against libde265 step-by-step, starting from byte 0.
 
 ### Other Issues
 - Output dimensions 1280x856 vs reference 1280x854 (missing conformance window cropping)
@@ -185,6 +199,32 @@ that allows the encoder to infer one sign bit per 4x4 sub-block from coefficient
 - Comparison crate for testing C++/Rust CABAC functions
 - All basic CABAC tests pass (bypass decode, bypass bits, coeff_abs_level_remaining)
 - Can be extended to test more coefficient decoding operations
+
+### greater1_flag/greater2_flag Context Fix (2026-01-22)
+
+**Problem:** Chroma averages were 198/210 instead of ~128.
+
+**Root cause:** Context index derivation for coeff_abs_level_greater1_flag was incorrect.
+Our implementation used `c1` directly (0-3), but H.265/libde265 requires:
+- `ctxSet` (0-3): based on subblock position and previous subblock's c1 state
+- `greater1Ctx` (0-3): starts at 1 each subblock, modified per coefficient
+
+**Formula:** `ctxSet * 4 + min(greater1Ctx, 3) + (c_idx > 0 ? 16 : 0)`
+
+**ctxSet derivation:**
+- DC block (sb_idx==0) or chroma: base = 0
+- Non-DC luma: base = 2
+- If previous subblock ended with c1==0: ctxSet++
+
+**greater1Ctx state machine:**
+- Reset to 1 at start of each subblock
+- Before decoding each coefficient (except first):
+  - If previous greater1_flag was 1: greater1Ctx = 0
+  - Else if greater1Ctx > 0: greater1Ctx++ (capped at 3 when using)
+
+**greater2_flag:** Uses `ctxSet + (c_idx > 0 ? 4 : 0)` instead of just the chroma offset.
+
+**Results:** Chroma averages improved from 198/210 to 161/173. Still not at target ~128.
 
 ### Context Derivation Analysis (2026-01-22)
 
