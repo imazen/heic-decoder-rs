@@ -22,6 +22,9 @@ multiversed = { version = "0.1.0", features = ["x86-64-v4", "aarch64-sve2"] }
 
 [dev-dependencies]
 criterion = "0.6"
+fast-ssim2 = { version = "0.6.5", features = ["imgref"] }
+imgref = "1.11"
+heic-wasm-rs = { path = "../heic-wasm-rs" }
 
 # [[bench]]
 # name = "decode"

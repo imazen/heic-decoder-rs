@@ -3,7 +3,7 @@
 //! This module handles parsing of transform coefficients via CABAC
 //! and applying inverse transforms to residuals.
 
-use super::cabac::{context, CabacDecoder, ContextModel};
+use super::cabac::{CabacDecoder, ContextModel, context};
 use super::debug;
 use super::transform::MAX_COEFF;
 use crate::error::HevcError;
@@ -165,7 +165,8 @@ impl CoeffBuffer {
 
 /// Decode residual coefficients for a transform unit
 /// Debug counter to identify specific TU calls
-pub static DEBUG_RESIDUAL_COUNTER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+pub static DEBUG_RESIDUAL_COUNTER: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
 
 pub fn decode_residual(
     cabac: &mut CabacDecoder<'_>,
@@ -180,15 +181,18 @@ pub fn decode_residual(
     let (init_range, init_offset) = cabac.get_state();
 
     // Increment and capture counter for debugging
-    let residual_call_num = DEBUG_RESIDUAL_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let residual_call_num =
+        DEBUG_RESIDUAL_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
     // Verbose debug for specific call (disabled by default)
     #[allow(unused_variables)]
     let debug_call = false;
     if debug_call {
         let (byte_pos, _, _) = cabac.get_position();
-        eprintln!("DEBUG call#{}: START log2={} c_idx={} scan={:?} byte={} cabac=({},{})",
-            residual_call_num, log2_size, c_idx, scan_order, byte_pos, init_range, init_offset);
+        eprintln!(
+            "DEBUG call#{}: START log2={} c_idx={} scan={:?} byte={} cabac=({},{})",
+            residual_call_num, log2_size, c_idx, scan_order, byte_pos, init_range, init_offset
+        );
     }
 
     let mut buffer = CoeffBuffer::new(log2_size);
@@ -196,7 +200,6 @@ pub fn decode_residual(
 
     // Decode last significant coefficient position
     let (last_x, last_y) = decode_last_sig_coeff_pos(cabac, ctx, log2_size, c_idx)?;
-
 
     // Swap coordinates for vertical scan
     let (last_x, last_y) = if scan_order == ScanOrder::Vertical {
@@ -322,8 +325,7 @@ pub fn decode_residual(
         // (DC at position 0 is handled separately for inference)
         for n in (1..=last_coeff).rev() {
             let sig = decode_sig_coeff_flag(
-                cabac, ctx, c_idx, n,
-                log2_size, scan_idx, sb_x, sb_y, prev_csbf, scan_pos
+                cabac, ctx, c_idx, n, log2_size, scan_idx, sb_x, sb_y, prev_csbf, scan_pos,
             )?;
             if sig {
                 coeff_flags[n as usize] = true;
@@ -345,8 +347,7 @@ pub fn decode_residual(
             } else {
                 // Decode sig_coeff_flag for DC
                 let sig = decode_sig_coeff_flag(
-                    cabac, ctx, c_idx, 0,
-                    log2_size, scan_idx, sb_x, sb_y, prev_csbf, scan_pos
+                    cabac, ctx, c_idx, 0, log2_size, scan_idx, sb_x, sb_y, prev_csbf, scan_pos,
                 )?;
                 if sig {
                     coeff_flags[0] = true;
@@ -420,7 +421,6 @@ pub fn decode_residual(
             g1_count += 1;
         }
 
-
         // Decode greater-2 flag (only for first coefficient with greater-1)
         // Per libde265: uses ctxSet from last greater1 decode, which is c1
         if let Some(g1_idx) = first_g1_idx {
@@ -430,7 +430,6 @@ pub fn decode_residual(
                 needs_remaining[g1_idx as usize] = true;
             }
         }
-
 
         // Find first and last significant positions in this sub-block
         let mut first_sig_pos = None;
@@ -452,11 +451,8 @@ pub fn decode_residual(
         // - cu_transquant_bypass_flag is false
         // - lastScanPos - firstScanPos > 3
         // Note: also disabled for RDPCM modes (not implemented here)
-        let sign_hidden = sign_data_hiding_enabled
-            && !cu_transquant_bypass
-            && (last_sig_pos - first_sig_pos) > 3;
-
-
+        let sign_hidden =
+            sign_data_hiding_enabled && !cu_transquant_bypass && (last_sig_pos - first_sig_pos) > 3;
 
         // Decode signs (bypass mode)
         // Following libde265's approach: decode signs in coefficient order (high scan pos to low)
@@ -481,7 +477,10 @@ pub fn decode_residual(
         // This matches the H.265 spec and libde265: the FIRST coefficient in
         // scanning order (lowest scan position) has its sign hidden.
         let mut coeff_signs = [0u8; 16];
-        for (i, sign) in coeff_signs[..n_sig.saturating_sub(1)].iter_mut().enumerate() {
+        for (i, sign) in coeff_signs[..n_sig.saturating_sub(1)]
+            .iter_mut()
+            .enumerate()
+        {
             *sign = cabac.decode_bypass()?;
             let _ = i; // Silence unused warning if needed
         }
@@ -490,7 +489,6 @@ pub fn decode_residual(
             coeff_signs[n_sig - 1] = cabac.decode_bypass()?;
         }
         // If sign_hidden, coeff_signs[n_sig-1] stays 0 (will be inferred later)
-
 
         // Decode remaining levels for all coefficients that need it
         // Rice parameter starts at 0 and is updated adaptively
@@ -539,8 +537,10 @@ pub fn decode_residual(
                 // Invariant check: track large coefficients (indicates CABAC desync)
                 if coeff_values[n].abs() > 500 {
                     let (byte_pos, _, _) = cabac.get_position();
-                    eprintln!("LARGE COEFF: call#{} c_idx={} pos=({},{}) sb=({},{}) n={} val={} byte={}",
-                        residual_call_num, c_idx, x, y, sb_x, sb_y, n, coeff_values[n], byte_pos);
+                    eprintln!(
+                        "LARGE COEFF: call#{} c_idx={} pos=({},{}) sb=({},{}) n={} val={} byte={}",
+                        residual_call_num, c_idx, x, y, sb_x, sb_y, n, coeff_values[n], byte_pos
+                    );
                     debug::track_large_coeff(byte_pos);
                 }
             }
@@ -560,18 +560,88 @@ fn get_scan_sub_block(log2_size: u8, order: ScanOrder) -> &'static [(u8, u8)] {
     static SCAN_1X1: [(u8, u8); 1] = [(0, 0)];
     static SCAN_2X2_DIAG: [(u8, u8); 4] = [(0, 0), (1, 0), (0, 1), (1, 1)];
     static SCAN_4X4_DIAG: [(u8, u8); 16] = [
-        (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2), (3, 0), (2, 1),
-        (1, 2), (0, 3), (3, 1), (2, 2), (1, 3), (3, 2), (2, 3), (3, 3),
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (2, 0),
+        (1, 1),
+        (0, 2),
+        (3, 0),
+        (2, 1),
+        (1, 2),
+        (0, 3),
+        (3, 1),
+        (2, 2),
+        (1, 3),
+        (3, 2),
+        (2, 3),
+        (3, 3),
     ];
     static SCAN_8X8_DIAG: [(u8, u8); 64] = [
-        (0, 0), (1, 0), (0, 1), (2, 0), (1, 1), (0, 2), (3, 0), (2, 1),
-        (1, 2), (0, 3), (4, 0), (3, 1), (2, 2), (1, 3), (0, 4), (5, 0),
-        (4, 1), (3, 2), (2, 3), (1, 4), (0, 5), (6, 0), (5, 1), (4, 2),
-        (3, 3), (2, 4), (1, 5), (0, 6), (7, 0), (6, 1), (5, 2), (4, 3),
-        (3, 4), (2, 5), (1, 6), (0, 7), (7, 1), (6, 2), (5, 3), (4, 4),
-        (3, 5), (2, 6), (1, 7), (7, 2), (6, 3), (5, 4), (4, 5), (3, 6),
-        (2, 7), (7, 3), (6, 4), (5, 5), (4, 6), (3, 7), (7, 4), (6, 5),
-        (5, 6), (4, 7), (7, 5), (6, 6), (5, 7), (7, 6), (6, 7), (7, 7),
+        (0, 0),
+        (1, 0),
+        (0, 1),
+        (2, 0),
+        (1, 1),
+        (0, 2),
+        (3, 0),
+        (2, 1),
+        (1, 2),
+        (0, 3),
+        (4, 0),
+        (3, 1),
+        (2, 2),
+        (1, 3),
+        (0, 4),
+        (5, 0),
+        (4, 1),
+        (3, 2),
+        (2, 3),
+        (1, 4),
+        (0, 5),
+        (6, 0),
+        (5, 1),
+        (4, 2),
+        (3, 3),
+        (2, 4),
+        (1, 5),
+        (0, 6),
+        (7, 0),
+        (6, 1),
+        (5, 2),
+        (4, 3),
+        (3, 4),
+        (2, 5),
+        (1, 6),
+        (0, 7),
+        (7, 1),
+        (6, 2),
+        (5, 3),
+        (4, 4),
+        (3, 5),
+        (2, 6),
+        (1, 7),
+        (7, 2),
+        (6, 3),
+        (5, 4),
+        (4, 5),
+        (3, 6),
+        (2, 7),
+        (7, 3),
+        (6, 4),
+        (5, 5),
+        (4, 6),
+        (3, 7),
+        (7, 4),
+        (6, 5),
+        (5, 6),
+        (4, 7),
+        (7, 5),
+        (6, 6),
+        (5, 7),
+        (7, 6),
+        (6, 7),
+        (7, 7),
     ];
 
     let _ = order; // TODO: Use horizontal/vertical scan when appropriate
@@ -709,12 +779,7 @@ fn decode_coded_sub_block_flag(
 
 /// Context index map for 4x4 TU sig_coeff_flag (H.265 Table 9-41)
 /// Maps position (y*4 + x) to context index
-static CTX_IDX_MAP_4X4: [u8; 16] = [
-    0, 1, 4, 5,
-    2, 3, 4, 5,
-    6, 6, 8, 8,
-    7, 7, 8, 8,
-];
+static CTX_IDX_MAP_4X4: [u8; 16] = [0, 1, 4, 5, 2, 3, 4, 5, 6, 6, 8, 8, 7, 7, 8, 8];
 
 /// Calculate sig_coeff_flag context index
 ///
@@ -759,21 +824,33 @@ fn calc_sig_coeff_flag_ctx(
         let mut ctx = match prev_csbf {
             0 => {
                 // No coded neighbors: context based on position sum
-                if x_p + y_p >= 3 { 0 }
-                else if x_p + y_p > 0 { 1 }
-                else { 2 }
+                if x_p + y_p >= 3 {
+                    0
+                } else if x_p + y_p > 0 {
+                    1
+                } else {
+                    2
+                }
             }
             1 => {
                 // Below neighbor coded (bit0=1): context based on y position
-                if y_p == 0 { 2 }
-                else if y_p == 1 { 1 }
-                else { 0 }
+                if y_p == 0 {
+                    2
+                } else if y_p == 1 {
+                    1
+                } else {
+                    0
+                }
             }
             2 => {
                 // Right neighbor coded (bit1=1): context based on x position
-                if x_p == 0 { 2 }
-                else if x_p == 1 { 1 }
-                else { 0 }
+                if x_p == 0 {
+                    2
+                } else if x_p == 1 {
+                    1
+                } else {
+                    0
+                }
             }
             _ => {
                 // Both neighbors coded
@@ -862,9 +939,8 @@ fn decode_coeff_greater2_flag(
     c_idx: u8,
     ctx_set: u8,
 ) -> Result<bool> {
-    let ctx_idx = context::COEFF_ABS_LEVEL_GREATER2_FLAG
-        + if c_idx > 0 { 4 } else { 0 }
-        + ctx_set as usize;
+    let ctx_idx =
+        context::COEFF_ABS_LEVEL_GREATER2_FLAG + if c_idx > 0 { 4 } else { 0 } + ctx_set as usize;
     Ok(cabac.decode_bin(&mut ctx[ctx_idx])? != 0)
 }
 

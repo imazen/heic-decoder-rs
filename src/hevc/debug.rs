@@ -30,10 +30,7 @@ pub fn invariant_violation(msg: &str, should_panic: bool) {
 pub fn check_cabac_invariants(range: u16, offset: u16, context: &str) {
     // After renormalization, range should be >= 256
     if range < 256 {
-        invariant_violation(
-            &format!("{}: CABAC range {} < 256", context, range),
-            false,
-        );
+        invariant_violation(&format!("{}: CABAC range {} < 256", context, range), false);
     }
 
     // Offset should always be < range
@@ -46,10 +43,7 @@ pub fn check_cabac_invariants(range: u16, offset: u16, context: &str) {
 
     // Range should be <= 510 (initial value)
     if range > 510 {
-        invariant_violation(
-            &format!("{}: CABAC range {} > 510", context, range),
-            true,
-        );
+        invariant_violation(&format!("{}: CABAC range {} > 510", context, range), true);
     }
 }
 
@@ -59,9 +53,7 @@ pub fn check_coeff_invariants(value: i16, max_coeff: i16, context: &str) {
         invariant_violation(
             &format!(
                 "{}: coefficient {} exceeds max {}",
-                context,
-                value,
-                max_coeff
+                context, value, max_coeff
             ),
             false,
         );
@@ -133,8 +125,15 @@ impl TuDecodeLog {
         for (i, ev) in self.events.iter().enumerate() {
             eprintln!(
                 "  [{}] sb={} pos={}: base={} rem={} sign={} final={} (range={} off={})",
-                i, ev.sb_idx, ev.pos, ev.base_level, ev.remaining, ev.sign, ev.final_value,
-                ev.cabac_range, ev.cabac_offset
+                i,
+                ev.sb_idx,
+                ev.pos,
+                ev.base_level,
+                ev.remaining,
+                ev.sign,
+                ev.final_value,
+                ev.cabac_range,
+                ev.cabac_offset
             );
         }
     }
@@ -179,8 +178,7 @@ pub fn coeff_checksum(coeffs: &[i16], size: usize) -> u64 {
             let idx = y * size + x;
             if idx < coeffs.len() {
                 // Include position in checksum to catch ordering issues
-                sum = sum
-                    .wrapping_add((coeffs[idx] as i64).wrapping_mul(idx as i64 + 1) as u64);
+                sum = sum.wrapping_add((coeffs[idx] as i64).wrapping_mul(idx as i64 + 1) as u64);
             }
         }
     }

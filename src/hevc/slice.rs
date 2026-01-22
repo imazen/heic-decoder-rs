@@ -281,8 +281,8 @@ impl SliceHeader {
         }
 
         let slice_type_val = reader.read_ue()? as u8;
-        let slice_type =
-            SliceType::from_u8(slice_type_val).ok_or(HevcError::InvalidBitstream("invalid slice type"))?;
+        let slice_type = SliceType::from_u8(slice_type_val)
+            .ok_or(HevcError::InvalidBitstream("invalid slice type"))?;
 
         let pic_output_flag = if pps.output_flag_present_flag {
             reader.read_bit()? != 0
@@ -311,17 +311,18 @@ impl SliceHeader {
         }
 
         // SAO flags
-        let (slice_sao_luma_flag, slice_sao_chroma_flag) = if sps.sample_adaptive_offset_enabled_flag {
-            let luma = reader.read_bit()? != 0;
-            let chroma = if sps.chroma_array_type() != 0 {
-                reader.read_bit()? != 0
+        let (slice_sao_luma_flag, slice_sao_chroma_flag) =
+            if sps.sample_adaptive_offset_enabled_flag {
+                let luma = reader.read_bit()? != 0;
+                let chroma = if sps.chroma_array_type() != 0 {
+                    reader.read_bit()? != 0
+                } else {
+                    false
+                };
+                (luma, chroma)
             } else {
-                false
+                (false, false)
             };
-            (luma, chroma)
-        } else {
-            (false, false)
-        };
 
         // For P/B slices, there would be ref idx and weight table parsing here
         // We skip this for I-slices (HEIC still images are typically I-frames)
@@ -333,13 +334,14 @@ impl SliceHeader {
         let slice_qp_delta = reader.read_se()? as i8;
 
         // Chroma QP offsets
-        let (slice_cb_qp_offset, slice_cr_qp_offset) = if pps.pps_slice_chroma_qp_offsets_present_flag {
-            let cb = reader.read_se()? as i8;
-            let cr = reader.read_se()? as i8;
-            (cb, cr)
-        } else {
-            (0, 0)
-        };
+        let (slice_cb_qp_offset, slice_cr_qp_offset) =
+            if pps.pps_slice_chroma_qp_offsets_present_flag {
+                let cb = reader.read_se()? as i8;
+                let cr = reader.read_se()? as i8;
+                (cb, cr)
+            } else {
+                (0, 0)
+            };
 
         // CU chroma QP offset
         let cu_chroma_qp_offset_enabled_flag = false; // Skip range extension for now
@@ -370,29 +372,32 @@ impl SliceHeader {
             };
 
         // Loop filter across slices
-        let slice_loop_filter_across_slices_enabled_flag =
-            if pps.pps_loop_filter_across_slices_enabled_flag
-                && (slice_sao_luma_flag || slice_sao_chroma_flag || !slice_deblocking_filter_disabled_flag)
-            {
-                reader.read_bit()? != 0
-            } else {
-                pps.pps_loop_filter_across_slices_enabled_flag
-            };
+        let slice_loop_filter_across_slices_enabled_flag = if pps
+            .pps_loop_filter_across_slices_enabled_flag
+            && (slice_sao_luma_flag
+                || slice_sao_chroma_flag
+                || !slice_deblocking_filter_disabled_flag)
+        {
+            reader.read_bit()? != 0
+        } else {
+            pps.pps_loop_filter_across_slices_enabled_flag
+        };
 
         // Entry point offsets (tiles/WPP)
-        let num_entry_point_offsets = if pps.tiles_enabled_flag || pps.entropy_coding_sync_enabled_flag {
-            let n = reader.read_ue()?;
-            if n > 0 {
-                // Skip the actual offset values for now
-                let offset_len = reader.read_ue()? as u8 + 1;
-                for _ in 0..n {
-                    reader.read_bits(offset_len)?;
+        let num_entry_point_offsets =
+            if pps.tiles_enabled_flag || pps.entropy_coding_sync_enabled_flag {
+                let n = reader.read_ue()?;
+                if n > 0 {
+                    // Skip the actual offset values for now
+                    let offset_len = reader.read_ue()? as u8 + 1;
+                    for _ in 0..n {
+                        reader.read_bits(offset_len)?;
+                    }
                 }
-            }
-            n
-        } else {
-            0
-        };
+                n
+            } else {
+                0
+            };
 
         // Skip slice segment header extension
         if pps.slice_segment_header_extension_present_flag {
@@ -410,8 +415,15 @@ impl SliceHeader {
         let data_offset = reader.byte_position();
 
         // DEBUG: Print slice header parsing info
-        eprintln!("DEBUG: Slice header: alignment_bit={}, data_offset={}", alignment_bit, data_offset);
-        eprintln!("DEBUG: slice_qp_delta={}, slice_qp_y={}", slice_qp_delta, 26 + pps.init_qp_minus26 as i32 + slice_qp_delta as i32);
+        eprintln!(
+            "DEBUG: Slice header: alignment_bit={}, data_offset={}",
+            alignment_bit, data_offset
+        );
+        eprintln!(
+            "DEBUG: slice_qp_delta={}, slice_qp_y={}",
+            slice_qp_delta,
+            26 + pps.init_qp_minus26 as i32 + slice_qp_delta as i32
+        );
 
         // Calculate derived values
         let slice_qp_y = 26 + pps.init_qp_minus26 as i32 + slice_qp_delta as i32;

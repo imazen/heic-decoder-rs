@@ -20,7 +20,7 @@ pub static INTRA_PRED_ANGLE: [i16; 35] = [
     -2, -5, -9, -13, -17, -21, -26, // modes 11-17
     -32, // mode 18 (diagonal down-left)
     -26, -21, -17, -13, -9, -5, -2, // modes 19-25
-    0, // mode 26 (vertical)
+    0,  // mode 26 (vertical)
     2, 5, 9, 13, 17, 21, 26, // modes 27-33
     32, // mode 34 (diagonal down-right)
 ];
@@ -29,7 +29,7 @@ pub static INTRA_PRED_ANGLE: [i16; 35] = [
 /// Used to extend reference samples for negative angle prediction
 pub static INV_ANGLE: [i32; 15] = [
     -4096, -1638, -910, -630, -482, -390, -315, // modes 11-17
-    -256,  // mode 18
+    -256, // mode 18
     -315, -390, -482, -630, -910, -1638, -4096, // modes 19-25
 ];
 
@@ -70,21 +70,41 @@ pub fn predict_intra(
 
     // Print BEFORE prediction to see what border samples are read
     if c_idx == 1 && y == 0 && (20..=28).contains(&x) {
-        let left_samples: Vec<i32> = (0..size as usize).map(|i| border[border_center - 1 - i]).collect();
+        let left_samples: Vec<i32> = (0..size as usize)
+            .map(|i| border[border_center - 1 - i])
+            .collect();
         let actual_frame_val = frame.get_cb(x.saturating_sub(1), y);
-        eprintln!("DEBUG Cb[{}]: at ({},{}) BEFORE predict: border_left[0]={} frame.get_cb({},0)={}",
-            seq, x, y, left_samples[0], x.saturating_sub(1), actual_frame_val);
+        eprintln!(
+            "DEBUG Cb[{}]: at ({},{}) BEFORE predict: border_left[0]={} frame.get_cb({},0)={}",
+            seq,
+            x,
+            y,
+            left_samples[0],
+            x.saturating_sub(1),
+            actual_frame_val
+        );
     }
 
     // DEBUG: Print detailed info for Cr around the corruption point (x=104-112)
     if c_idx == 2 && y == 0 && (100..=116).contains(&x) {
-        let left_samples: Vec<i32> = (0..size.min(8) as usize).map(|i| border[border_center - 1 - i]).collect();
-        let top_samples: Vec<i32> = (0..size.min(8) as usize).map(|i| border[border_center + 1 + i]).collect();
+        let left_samples: Vec<i32> = (0..size.min(8) as usize)
+            .map(|i| border[border_center - 1 - i])
+            .collect();
+        let top_samples: Vec<i32> = (0..size.min(8) as usize)
+            .map(|i| border[border_center + 1 + i])
+            .collect();
         let top_left = border[border_center];
         let left_frame_val = if x > 0 { frame.get_cr(x - 1, 0) } else { 0 };
         eprintln!("DEBUG Cr: at ({},{}) size={} mode={:?}", x, y, size, mode);
-        eprintln!("  border: top_left={} left={:?} top={:?}", top_left, left_samples, top_samples);
-        eprintln!("  frame.get_cr({},0)={}", x.saturating_sub(1), left_frame_val);
+        eprintln!(
+            "  border: top_left={} left={:?} top={:?}",
+            top_left, left_samples, top_samples
+        );
+        eprintln!(
+            "  frame.get_cr({},0)={}",
+            x.saturating_sub(1),
+            left_frame_val
+        );
     }
 
     // Apply prediction based on mode
@@ -105,7 +125,9 @@ pub fn predict_intra(
     if x == 0 && y == 0 && c_idx == 0 {
         eprintln!("DEBUG: predicted Y values at (0,0):");
         for py in 0..size.min(4) {
-            let row: Vec<u16> = (0..size.min(4)).map(|px| frame.get_y(x + px, y + py)).collect();
+            let row: Vec<u16> = (0..size.min(4))
+                .map(|px| frame.get_y(x + px, y + py))
+                .collect();
             eprintln!("  {:?}", row);
         }
     }
@@ -113,9 +135,13 @@ pub fn predict_intra(
     // DEBUG: Print Cb output after prediction for problem area
     if debug_output {
         // Print the right edge of the block (which will be read by the next block)
-        let right_edge: Vec<u16> = (0..size).map(|py| frame.get_cb(x + size - 1, y + py)).collect();
-        eprintln!("DEBUG Cb: predicted at ({},{}) size={} mode={:?} right_edge={:?}",
-            x, y, size, mode, right_edge);
+        let right_edge: Vec<u16> = (0..size)
+            .map(|py| frame.get_cb(x + size - 1, y + py))
+            .collect();
+        eprintln!(
+            "DEBUG Cb: predicted at ({},{}) size={} mode={:?} right_edge={:?}",
+            x, y, size, mode, right_edge
+        );
     }
 }
 
@@ -421,7 +447,8 @@ fn predict_angular(
                     // So xx * inv_angle is positive, giving a positive idx
                     let idx = (xx * inv_angle + 128) >> 8;
                     if idx >= 0 && idx <= (2 * n) {
-                        ref_arr[(ref_center as i32 + xx) as usize] = border[(center as i32 - idx) as usize];
+                        ref_arr[(ref_center as i32 + xx) as usize] =
+                            border[(center as i32 - idx) as usize];
                     }
                 }
             }
@@ -459,9 +486,15 @@ fn predict_angular(
         // Boundary filter for mode 26 (vertical)
         if mode == 26 && c_idx == 0 && size < 32 {
             for py in 0..n {
-                let pred = border[center + 1]
-                    + ((border[center - 1 - py as usize] - border[center]) >> 1);
-                set_sample(frame, x, y + py as u32, c_idx, pred.clamp(0, max_val) as u16);
+                let pred =
+                    border[center + 1] + ((border[center - 1 - py as usize] - border[center]) >> 1);
+                set_sample(
+                    frame,
+                    x,
+                    y + py as u32,
+                    c_idx,
+                    pred.clamp(0, max_val) as u16,
+                );
             }
         }
     } else {
@@ -482,7 +515,8 @@ fn predict_angular(
                 for xx in ext..=-1 {
                     let idx = (xx * inv_angle + 128) >> 8;
                     if idx >= 0 && idx <= (2 * n) {
-                        ref_arr[(ref_center as i32 + xx) as usize] = border[(center as i32 + idx) as usize];
+                        ref_arr[(ref_center as i32 + xx) as usize] =
+                            border[(center as i32 + idx) as usize];
                     }
                 }
             }
@@ -520,9 +554,15 @@ fn predict_angular(
         // Boundary filter for mode 10 (horizontal)
         if mode == 10 && c_idx == 0 && size < 32 {
             for px in 0..n {
-                let pred = border[center - 1]
-                    + ((border[center + 1 + px as usize] - border[center]) >> 1);
-                set_sample(frame, x + px as u32, y, c_idx, pred.clamp(0, max_val) as u16);
+                let pred =
+                    border[center - 1] + ((border[center + 1 + px as usize] - border[center]) >> 1);
+                set_sample(
+                    frame,
+                    x + px as u32,
+                    y,
+                    c_idx,
+                    pred.clamp(0, max_val) as u16,
+                );
             }
         }
     }

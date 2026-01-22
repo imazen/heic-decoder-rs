@@ -13,9 +13,15 @@ fn test_get_info() {
     println!("Primary item ID: {}", container.primary_item_id);
     println!("Item infos: {} items", container.item_infos.len());
     for info in &container.item_infos {
-        println!("  Item {}: type={:?}, name={:?}", info.item_id, info.item_type, info.item_name);
+        println!(
+            "  Item {}: type={:?}, name={:?}",
+            info.item_id, info.item_type, info.item_name
+        );
     }
-    println!("Property associations: {} entries", container.property_associations.len());
+    println!(
+        "Property associations: {} entries",
+        container.property_associations.len()
+    );
     for assoc in &container.property_associations {
         println!("  Item {}: {:?}", assoc.item_id, assoc.properties);
     }
@@ -31,8 +37,11 @@ fn test_get_info() {
         println!("  Name: {:?}", item.name);
         println!("  Dimensions from ispe: {:?}", item.dimensions);
         if let Some(ref config) = item.hevc_config {
-            println!("  HEVC config: {} NAL units, length_size={}",
-                     config.nal_units.len(), config.length_size_minus_one + 1);
+            println!(
+                "  HEVC config: {} NAL units, length_size={}",
+                config.nal_units.len(),
+                config.length_size_minus_one + 1
+            );
         } else {
             println!("  No HEVC config");
         }
@@ -93,8 +102,10 @@ fn test_decode() {
     ppm.push_str(&format!("P6\n{} {}\n255\n", image.width, image.height));
     let mut file = std::fs::File::create(ppm_path).expect("Failed to create PPM");
     use std::io::Write;
-    file.write_all(ppm.as_bytes()).expect("Failed to write PPM header");
-    file.write_all(&image.data).expect("Failed to write PPM data");
+    file.write_all(ppm.as_bytes())
+        .expect("Failed to write PPM header");
+    file.write_all(&image.data)
+        .expect("Failed to write PPM data");
     println!("Wrote decoded image to: {}", ppm_path);
 }
 
@@ -163,7 +174,10 @@ fn test_raw_yuv_values() {
         }
     }
 
-    println!("Frame: {}x{}, bit_depth={}", frame.width, frame.height, frame.bit_depth);
+    println!(
+        "Frame: {}x{}, bit_depth={}",
+        frame.width, frame.height, frame.bit_depth
+    );
     println!("Y plane: {} samples", frame.y_plane.len());
     println!("Cb plane: {} samples", frame.cb_plane.len());
     println!("Cr plane: {} samples", frame.cr_plane.len());
@@ -183,7 +197,13 @@ fn test_raw_yuv_values() {
     println!("  Histogram (32-bin):");
     for (i, count) in hist.iter().enumerate() {
         let pct = *count as f64 / frame.y_plane.len() as f64 * 100.0;
-        println!("    {:3}-{:3}: {:7} ({:5.1}%)", i*32, (i+1)*32-1, count, pct);
+        println!(
+            "    {:3}-{:3}: {:7} ({:5.1}%)",
+            i * 32,
+            (i + 1) * 32 - 1,
+            count,
+            pct
+        );
     }
 
     // Cb plane statistics
@@ -248,8 +268,12 @@ fn test_raw_yuv_values() {
         }
 
         if count > 0 {
-            println!("  CTU row {:2}: Cb avg={:3}, Cr avg={:3}",
-                ctu_row, cb_sum / count, cr_sum / count);
+            println!(
+                "  CTU row {:2}: Cb avg={:3}, Cr avg={:3}",
+                ctu_row,
+                cb_sum / count,
+                cr_sum / count
+            );
         }
     }
 
@@ -276,8 +300,12 @@ fn test_raw_yuv_values() {
         }
 
         if count > 0 {
-            println!("  CTU col {:2}: Cb avg={:3}, Cr avg={:3}",
-                ctu_col, cb_sum / count, cr_sum / count);
+            println!(
+                "  CTU col {:2}: Cb avg={:3}, Cr avg={:3}",
+                ctu_col,
+                cb_sum / count,
+                cr_sum / count
+            );
         }
     }
 
@@ -292,7 +320,12 @@ fn test_raw_yuv_values() {
             cb_row.push(format!("{:3}", frame.cb_plane[idx]));
             cr_row.push(format!("{:3}", frame.cr_plane[idx]));
         }
-        println!("  y={}: Cb=[{}]  Cr=[{}]", cy, cb_row.join(", "), cr_row.join(", "));
+        println!(
+            "  y={}: Cb=[{}]  Cr=[{}]",
+            cy,
+            cb_row.join(", "),
+            cr_row.join(", ")
+        );
     }
     println!("  (x=32 is start of CTU col 1)");
 

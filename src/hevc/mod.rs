@@ -16,9 +16,9 @@ mod transform;
 
 pub use picture::DecodedFrame;
 
-use alloc::vec::Vec;
 use crate::error::HevcError;
 use crate::heif::HevcDecoderConfig;
+use alloc::vec::Vec;
 
 type Result<T> = core::result::Result<T, HevcError>;
 
@@ -158,7 +158,10 @@ fn get_cropped_dimensions(sps: &params::Sps) -> (u32, u32) {
             sps.pic_height_in_luma_samples - crop_top - crop_bottom,
         )
     } else {
-        (sps.pic_width_in_luma_samples, sps.pic_height_in_luma_samples)
+        (
+            sps.pic_width_in_luma_samples,
+            sps.pic_height_in_luma_samples,
+        )
     }
 }
 
@@ -184,7 +187,9 @@ fn decode_slice(
 
     // Verify this is an I-slice (required for HEIC still images)
     if !slice_header.slice_type.is_intra() {
-        return Err(HevcError::Unsupported("only I-slices supported for still images"));
+        return Err(HevcError::Unsupported(
+            "only I-slices supported for still images",
+        ));
     }
 
     // 2. Get slice data (after header)

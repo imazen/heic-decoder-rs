@@ -459,7 +459,7 @@ mod tests {
 
         println!("IDCT4 output with DC=64:");
         for y in 0..4 {
-            println!("  {:?}", &output[y*4..y*4+4]);
+            println!("  {:?}", &output[y * 4..y * 4 + 4]);
         }
 
         // For DC-only input, DCT should produce uniform output
@@ -483,13 +483,16 @@ mod tests {
 
         println!("IDST4 output with DC=64:");
         for y in 0..4 {
-            println!("  {:?}", &output[y*4..y*4+4]);
+            println!("  {:?}", &output[y * 4..y * 4 + 4]);
         }
 
         // DST doesn't produce uniform output for DC input (unlike DCT)
         // Just verify it produces non-zero values
         let non_zero = output.iter().any(|&v| v != 0);
-        assert!(non_zero, "IDST4 should produce non-zero output for DC input");
+        assert!(
+            non_zero,
+            "IDST4 should produce non-zero output for DC input"
+        );
     }
 
     #[test]
@@ -515,8 +518,10 @@ mod tests {
 
         println!("IDST4 output with real coefficients:");
         for y in 0..4 {
-            println!("  {:?}", &output[y*4..y*4+4]);
+            println!("  {:?}", &output[y * 4..y * 4 + 4]);
         }
-        println!("Expected residuals: [-18, -23, -4, 23, -41, -24, 11, 22, -28, -22, 3, 18, -33, -34, 3, 44]");
+        println!(
+            "Expected residuals: [-18, -23, -4, 23, -41, -24, 11, 22, -28, -22, 3, 18, -33, -34, 3, 44]"
+        );
     }
 }
