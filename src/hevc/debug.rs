@@ -98,6 +98,7 @@ pub struct TuDecodeLog {
 }
 
 impl TuDecodeLog {
+    /// Create a new TU decode log
     pub fn new(tu_x: u32, tu_y: u32, c_idx: u8, log2_size: u8) -> Self {
         Self {
             events: Vec::new(),
@@ -110,10 +111,12 @@ impl TuDecodeLog {
         }
     }
 
+    /// Log a coefficient decode event
     pub fn log_coeff(&mut self, event: CoeffEvent) {
         self.events.push(event);
     }
 
+    /// Print summary of decoded coefficients
     pub fn print_summary(&self) {
         eprintln!(
             "TU ({},{}) c_idx={} size={}x{} last=({},{}) coeffs={}",
@@ -149,10 +152,8 @@ pub fn compare_coeffs(
     for y in 0..size {
         for x in 0..size {
             let idx = y * size + x;
-            if idx < ours.len() && idx < reference.len() {
-                if ours[idx] != reference[idx] {
-                    diffs.push((x, y, ours[idx], reference[idx]));
-                }
+            if idx < ours.len() && idx < reference.len() && ours[idx] != reference[idx] {
+                diffs.push((x, y, ours[idx], reference[idx]));
             }
         }
     }

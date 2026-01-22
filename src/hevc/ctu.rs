@@ -158,7 +158,7 @@ impl<'a> SliceContext<'a> {
             debug::track_ctu_start(ctu_count, byte_pos);
 
             // DEBUG: Print CTU state periodically
-            if ctu_count % 50 == 0 {
+            if ctu_count.is_multiple_of(50) {
                 let (range, offset) = self.cabac.get_state();
                 eprintln!("DEBUG: CTU {} byte={} cabac=({},{}) x={} y={}",
                     ctu_count, byte_pos, range, offset, self.ctb_x, self.ctb_y);
@@ -344,7 +344,7 @@ impl<'a> SliceContext<'a> {
             PartMode::Part2Nx2N => {
                 // Single PU covering entire CU
                 let mode = self.decode_intra_prediction(x0, y0, log2_cb_size, true, frame)?;
-                if self.debug_ctu && self.debug_ctu {
+                if self.debug_ctu {
                     let (r, o) = self.cabac.get_state();
                     eprintln!("  CTU37: After intra_prediction at (1144,120): mode={:?} (r={},o={}) bits={}", mode, r, o, self.cabac.get_position().2);
                 }
@@ -448,7 +448,7 @@ impl<'a> SliceContext<'a> {
         // 3. cbf_cr (if applicable)
 
         // Debug for specific position
-        let debug_tt = self.debug_ctu && self.debug_ctu;
+        let debug_tt = self.debug_ctu;
 
         // Step 1: Determine if we should split
         let split_transform = if log2_size <= log2_max_trafo_size
@@ -717,20 +717,12 @@ impl<'a> SliceContext<'a> {
             }
         }
 
-        // DEBUG: Print dequantized Cr coefficients at CTU 1 boundary
-        if x0 == 32 && y0 == 0 && c_idx == 2 {
-            eprintln!("DEBUG: Cr at (32,0) dequant QP={}, bit_depth={}:", qp, bit_depth);
-            for y in 0..size.min(4) {
-                let row: Vec<i16> = (0..size.min(4)).map(|px| coeffs[y * size + px]).collect();
-                eprintln!("  {:?}", row);
-            }
-        }
-        if x0 == 32 && y0 == 0 && c_idx == 1 {
-            eprintln!("DEBUG: Cb at (32,0) dequant QP={}, bit_depth={}:", qp, bit_depth);
-            for y in 0..size.min(4) {
-                let row: Vec<i16> = (0..size.min(4)).map(|px| coeffs[y * size + px]).collect();
-                eprintln!("  {:?}", row);
-            }
+        // DEBUG: Print dequantized Cr coefficients at x=104
+        if x0 == 104 && y0 == 0 && c_idx == 2 {
+            let call_num = residual::DEBUG_RESIDUAL_COUNTER.load(core::sync::atomic::Ordering::Relaxed);
+            eprintln!("DEBUG: Cr at (104,0) residual_call #{} BEFORE dequant: {:?}", call_num - 1, &coeff_buf.coeffs[..num_coeffs]);
+            eprintln!("DEBUG: Cr at (104,0) AFTER dequant QP={}, bit_depth={}:", qp, bit_depth);
+            eprintln!("  {:?}", &coeffs[..num_coeffs]);
         }
 
         // Apply inverse transform
@@ -775,7 +767,7 @@ impl<'a> SliceContext<'a> {
             CB_PRED_SUM.fetch_add(pred_sum, core::sync::atomic::Ordering::Relaxed);
             let count = CB_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             let pred_avg = pred_sum as f64 / num_coeffs as f64;
-            if count < 5 || (count >= 50 && count < 55) || (pred_avg > 240.0 && count < 30) {
+            if count < 5 || (50..55).contains(&count) || (pred_avg > 240.0 && count < 30) {
                 eprintln!("DEBUG: Cb TU at ({},{}) size={} residual_sum={} pred_avg={:.1}", x0, y0, size, res_sum, pred_avg);
             }
         } else if c_idx == 2 {
@@ -788,10 +780,16 @@ impl<'a> SliceContext<'a> {
             }
             CR_RESIDUAL_SUM.fetch_add(res_sum, core::sync::atomic::Ordering::Relaxed);
             CR_PRED_SUM.fetch_add(pred_sum, core::sync::atomic::Ordering::Relaxed);
-            let count = CR_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            let _count = CR_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             let pred_avg = pred_sum as f64 / num_coeffs as f64;
-            if count < 5 || (count >= 50 && count < 55) || (pred_avg > 240.0 && count < 30) {
+            // Debug for all Cr TUs at y=0 to trace corruption
+            if y0 == 0 {
                 eprintln!("DEBUG: Cr TU at ({},{}) size={} residual_sum={} pred_avg={:.1}", x0, y0, size, res_sum, pred_avg);
+                // Extra debug: print residual array for corrupted TU
+                if (104..=108).contains(&x0) {
+                    let res_vals: Vec<i16> = residual[..num_coeffs].to_vec();
+                    eprintln!("  residual array: {:?}", res_vals);
+                }
             }
         }
 
@@ -821,12 +819,8 @@ impl<'a> SliceContext<'a> {
 
                 let recon = (pred + r).clamp(0, max_val) as u16;
 
-                // DEBUG: Track Cb writes from residual application at the CTU 1 boundary
-                if c_idx == 1 && y <= 3 && x >= 32 && x <= 35 {
-                    eprintln!("DEBUG: residual set_cb({},{}) = {} (pred={} r={})", x, y, recon, pred, r);
-                }
-                // DEBUG: Track Cr writes at CTU 1 boundary
-                if c_idx == 2 && y <= 3 && x >= 32 && x <= 35 {
+                // DEBUG: Track Cr writes from residual at x=104-111, y=0
+                if c_idx == 2 && y == 0 && (104..=111).contains(&x) {
                     eprintln!("DEBUG: residual set_cr({},{}) = {} (pred={} r={})", x, y, recon, pred, r);
                 }
 

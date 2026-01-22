@@ -97,10 +97,10 @@ pub fn decode_rgba_into(
 
 ### In Progress
 - Debug remaining chroma bias (Cb=159, Cr=175 vs expected ~128)
+- Investigate coeff_abs_level_remaining producing large values
 
 ### Pending
-- coded_sub_block_flag full context derivation (attempted, caused worse desync)
-- prev_csbf bit ordering fixed for sig_coeff_flag
+- Compare coefficient output against libde265 reference decoder
 - Conformance window cropping
 - Deblocking filter
 - SAO (Sample Adaptive Offset)
@@ -124,11 +124,35 @@ pub fn decode_rgba_into(
   - Pixel average: 133 (improved)
   - Chroma averages: Cb=159, Cr=175 (still too high, should be ~128)
 
-### Remaining Chroma Bias
-- Chroma averages Cb=159, Cr=175 instead of expected ~128
-- Pattern observed: CTU columns 0-3 have reasonable Cr (~124-135), columns 4+ have elevated values (183-230)
-- 22 large coefficients suggest CABAC desync starting around CTU 8
-- Simplified coded_sub_block_flag context may be causing gradual drift
+### Remaining Chroma Bias - Root Cause Analysis (2026-01-22)
+
+**Symptoms:**
+- Cr plane average ~209 instead of expected ~128
+- CTU columns 0-3 have reasonable Cr (~124-135)
+- CTU columns 4+ have elevated Cr (183-230)
+
+**Root cause traced to Cr TU at (104,0):**
+- Coefficient at scan position 3 (buffer position 2) has value 1064
+- This coefficient has remaining_level = 1062 (base=2, so 2+1062=1064)
+- Value 1062 requires prefix=12 in Golomb-Rice decoding (12 consecutive 1-bits)
+
+**CABAC state analysis:**
+- After decoding pos=5 remaining, CABAC state is (range=356, value>>7=355)
+- This state is at the boundary where bypass decoding produces many 1-bits
+- value=45440, range<<7=45568, so after shift: value*2 >= range<<7 always true
+
+**Corruption propagation:**
+1. Large coefficient 1064 after inverse transform gives residual ~248 at some positions
+2. Adding residual 248 to prediction 135 overflows to 255 (clipped)
+3. Neighboring TUs use corrupted reference samples (255 instead of ~135)
+4. Corruption spreads through intra prediction to subsequent CTUs
+
+**Key file locations:**
+- `residual.rs:285` - decode_residual call #285 (problematic TU)
+- `residual.rs:801-813` - coeff_abs_level_remaining with large prefix
+- `ctu.rs:722-725` - Coefficient buffer at (104,0) showing [0, -9, 1064, 4, ...]
+
+**Next step:** Compare our CABAC output against libde265 at byte 2199 to verify if state (356,355) is correct for this bitstream.
 
 ### Other Issues
 - Output dimensions 1280x856 vs reference 1280x854 (missing conformance window cropping)

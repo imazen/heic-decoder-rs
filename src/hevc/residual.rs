@@ -164,6 +164,9 @@ impl CoeffBuffer {
 }
 
 /// Decode residual coefficients for a transform unit
+/// Debug counter to identify specific TU calls
+pub static DEBUG_RESIDUAL_COUNTER: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
 pub fn decode_residual(
     cabac: &mut CabacDecoder<'_>,
     ctx: &mut [ContextModel],
@@ -175,6 +178,9 @@ pub fn decode_residual(
 ) -> Result<CoeffBuffer> {
     // Track initial CABAC state for debugging
     let (init_range, init_offset) = cabac.get_state();
+
+    // Increment and capture counter for debugging
+    let residual_call_num = DEBUG_RESIDUAL_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
     let mut buffer = CoeffBuffer::new(log2_size);
     let size = 1u32 << log2_size;
@@ -379,6 +385,16 @@ pub fn decode_residual(
             }
         }
 
+        // Debug for problematic call #285
+        if residual_call_num == 285 {
+            let (range, offset) = cabac.get_state();
+            let (byte_pos, _, _) = cabac.get_position();
+            eprintln!("DEBUG #285: after g1/g2: first_g1_idx={:?} byte={} cabac=({},{})", first_g1_idx, byte_pos, range, offset);
+            eprintln!("  coeff_flags={:?}", &coeff_flags[..16]);
+            eprintln!("  coeff_values={:?}", &coeff_values[..16]);
+            eprintln!("  needs_remaining={:?}", &needs_remaining[..16]);
+        }
+
         // Find first and last significant positions in this sub-block
         let mut first_sig_pos = None;
         let mut last_sig_pos = None;
@@ -438,6 +454,14 @@ pub fn decode_residual(
         }
         // If sign_hidden, coeff_signs[n_sig-1] stays 0 (will be inferred later)
 
+        // Debug for call #285 - state after sign decoding
+        if residual_call_num == 285 {
+            let (range, offset) = cabac.get_state();
+            let (byte_pos, _, _) = cabac.get_position();
+            eprintln!("DEBUG #285: after signs: n_sig={} sign_hidden={} byte={} cabac=({},{}) signs={:?}",
+                n_sig, sign_hidden, byte_pos, range, offset, &coeff_signs[..n_sig]);
+        }
+
         // Decode remaining levels for all coefficients that need it
         // Rice parameter starts at 0 and is updated adaptively
         let mut rice_param = 0u8;
@@ -449,6 +473,14 @@ pub fn decode_residual(
 
                 let (remaining, new_rice) =
                     decode_coeff_abs_level_remaining(cabac, rice_param, base)?;
+
+                // Debug for problematic call #285
+                if residual_call_num == 285 {
+                    let (range, offset) = cabac.get_state();
+                    eprintln!("DEBUG #285: pos={} base={} rice={} remaining={} new_rice={} cabac=({},{})",
+                        n, base, rice_param, remaining, new_rice, range, offset);
+                }
+
                 rice_param = new_rice;
                 let final_value = base + remaining;
                 coeff_values[n as usize] = final_value;
@@ -737,6 +769,7 @@ fn calc_sig_coeff_flag_ctx(
 }
 
 /// Decode significant_coeff_flag with proper context derivation
+#[allow(clippy::too_many_arguments)]
 fn decode_sig_coeff_flag(
     cabac: &mut CabacDecoder<'_>,
     ctx: &mut [ContextModel],
@@ -791,8 +824,18 @@ fn decode_coeff_abs_level_remaining(
 ) -> Result<(i16, u8)> {
     // Decode prefix (unary part)
     let mut prefix = 0u32;
+    let (range_before, offset_before) = cabac.get_state();
     while cabac.decode_bypass()? != 0 && prefix < 32 {
         prefix += 1;
+    }
+
+    // Debug for very large prefixes during problematic decoding
+    let call_num = DEBUG_RESIDUAL_COUNTER.load(core::sync::atomic::Ordering::Relaxed);
+    if call_num == 286 && prefix > 8 {  // call #285 already incremented to 286
+        let (range_after, offset_after) = cabac.get_state();
+        let (byte_pos, _, _) = cabac.get_position();
+        eprintln!("DEBUG #285 REMAINING: prefix={} rice={} cabac_before=({},{}) cabac_after=({},{}) byte={}",
+            prefix, rice_param, range_before, offset_before, range_after, offset_after, byte_pos);
     }
 
     let value = if prefix <= 3 {

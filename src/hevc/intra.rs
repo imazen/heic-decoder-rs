@@ -61,7 +61,7 @@ pub fn predict_intra(
 
     // DEBUG: Track order and print border samples for chroma blocks near the problem area
     static PRED_SEQ: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-    let debug_output = c_idx == 1 && y == 0 && x >= 16 && x <= 36;
+    let debug_output = c_idx == 1 && y == 0 && (16..=36).contains(&x);
     let seq = if debug_output {
         PRED_SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
     } else {
@@ -69,11 +69,22 @@ pub fn predict_intra(
     };
 
     // Print BEFORE prediction to see what border samples are read
-    if c_idx == 1 && y == 0 && x >= 20 && x <= 28 {
+    if c_idx == 1 && y == 0 && (20..=28).contains(&x) {
         let left_samples: Vec<i32> = (0..size as usize).map(|i| border[border_center - 1 - i]).collect();
         let actual_frame_val = frame.get_cb(x.saturating_sub(1), y);
         eprintln!("DEBUG Cb[{}]: at ({},{}) BEFORE predict: border_left[0]={} frame.get_cb({},0)={}",
             seq, x, y, left_samples[0], x.saturating_sub(1), actual_frame_val);
+    }
+
+    // DEBUG: Print detailed info for Cr around the corruption point (x=104-112)
+    if c_idx == 2 && y == 0 && (100..=116).contains(&x) {
+        let left_samples: Vec<i32> = (0..size.min(8) as usize).map(|i| border[border_center - 1 - i]).collect();
+        let top_samples: Vec<i32> = (0..size.min(8) as usize).map(|i| border[border_center + 1 + i]).collect();
+        let top_left = border[border_center];
+        let left_frame_val = if x > 0 { frame.get_cr(x - 1, 0) } else { 0 };
+        eprintln!("DEBUG Cr: at ({},{}) size={} mode={:?}", x, y, size, mode);
+        eprintln!("  border: top_left={} left={:?} top={:?}", top_left, left_samples, top_samples);
+        eprintln!("  frame.get_cr({},0)={}", x.saturating_sub(1), left_frame_val);
     }
 
     // Apply prediction based on mode
@@ -257,12 +268,10 @@ fn get_sample(frame: &DecodedFrame, x: u32, y: u32, c_idx: u8) -> u16 {
 
 /// Set a sample in the frame
 fn set_sample(frame: &mut DecodedFrame, x: u32, y: u32, c_idx: u8, value: u16) {
-    // DEBUG: Track Cb writes at (23, 0)
-    static WRITE_COUNT_23_0: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-    if c_idx == 1 && x == 23 && y == 0 {
-        let count = WRITE_COUNT_23_0.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        let old_val = frame.get_cb(x, y);
-        eprintln!("DEBUG: set_cb(23,0) = {} (was {}, write #{})", value, old_val, count + 1);
+    // DEBUG: Track Cr writes at y=0 for x=104-111 to find corruption
+    if c_idx == 2 && y == 0 && (104..=111).contains(&x) {
+        let old_val = frame.get_cr(x, y);
+        eprintln!("DEBUG: set_cr({},{}) = {} (was {})", x, y, value, old_val);
     }
 
     match c_idx {
