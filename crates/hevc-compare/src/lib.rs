@@ -1749,4 +1749,176 @@ mod tests {
                 i, cpp_r, cpp_v, cpp_b, rust_r, rust_v, rust_b);
         }
     }
+
+    /// Test vertical scan sig_coeff_flag context derivation
+    /// Vertical scan (scan_idx=2) uses different context offsets than diagonal (scan_idx=0)
+    #[test]
+    fn test_vertical_scan_sig_coeff_flag() {
+        let slice_data: &[u8] = &[
+            0x49, 0xc0, 0xc2, 0xc4, 0x92, 0x61, 0x0c, 0x00,
+            0x16, 0xcc, 0xbe, 0x77, 0x82, 0x8c, 0xcb, 0xfa,
+            0x93, 0x5f, 0xb2, 0x6a, 0x65, 0x34, 0xe6, 0xf8,
+            0xd3, 0xa0, 0x76, 0xcc, 0x39, 0xe8, 0xe0, 0xac,
+            0x4d, 0x7e, 0xc9, 0xa9, 0x95, 0xd3, 0x9b, 0xe3,
+            0x4e, 0x81, 0xdb, 0x30, 0xe7, 0xa3, 0x82, 0xb1,
+        ];
+        let slice_qp = 17;
+
+        // SIG_COEFF_FLAG init values (44 contexts)
+        let sig_coeff_init: [u8; 44] = [
+            111, 111, 125, 110, 110, 94, 124, 108, 124,
+            107, 125, 141, 179, 153, 125, 107, 125, 141,
+            179, 153, 125, 107, 125, 141, 179, 153, 125,
+            170, 154, 139, 153, 139, 123, 123, 63, 124,
+            139, 153, 139, 123, 123, 63, 153, 166,
+        ];
+
+        println!("\n=== Testing Vertical Scan sig_coeff_flag ===\n");
+
+        // Test for both 4x4 and 8x8 TUs
+        for log2_size in [2u8, 3u8] {
+            for c_idx in [0u8, 1u8] {
+                let scan_idx = 2u8; // vertical scan
+
+                let mut cpp_cabac = CppCabac::new(slice_data);
+                let mut rust_cabac = RustCabac::new(slice_data);
+
+                let mut cpp_ctx: Vec<_> = sig_coeff_init.iter()
+                    .map(|&iv| {
+                        let mut ctx = CppContextModel { state: 0, mps: 0 };
+                        unsafe { context_init(&mut ctx, iv, slice_qp); }
+                        ctx
+                    })
+                    .collect();
+                let mut rust_ctx: Vec<_> = sig_coeff_init.iter()
+                    .map(|&iv| RustContext::new(iv, slice_qp))
+                    .collect();
+
+                let tu_size = 1u8 << log2_size;
+                println!("Testing {}x{} TU, c_idx={}, vertical scan", tu_size, tu_size, c_idx);
+
+                // Test positions within the TU
+                for y in 0..tu_size.min(4) {
+                    for x in 0..tu_size.min(4) {
+                        for prev_csbf in [0u8, 1, 2, 3] {
+                            let (cpp_r, cpp_v, cpp_b) = cpp_cabac.get_state();
+                            let cpp_sig = cpp_cabac.decode_sig_coeff(
+                                &mut cpp_ctx, x, y, log2_size, c_idx, scan_idx, prev_csbf
+                            );
+
+                            let (rust_r, rust_v, rust_b) = rust_cabac.get_state();
+                            let rust_sig = decode_sig_coeff_rust(
+                                &mut rust_cabac, &mut rust_ctx,
+                                x, y, log2_size, c_idx, scan_idx, prev_csbf
+                            );
+
+                            if cpp_sig != rust_sig {
+                                panic!(
+                                    "sig_coeff mismatch at ({},{}) log2={} c_idx={} prev_csbf={} scan=vert:\n\
+                                     C++={} state=({},{},{}) | Rust={} state=({},{},{})",
+                                    x, y, log2_size, c_idx, prev_csbf,
+                                    cpp_sig, cpp_r, cpp_v, cpp_b,
+                                    rust_sig, rust_r, rust_v, rust_b
+                                );
+                            }
+
+                            let (cpp_r2, cpp_v2, cpp_b2) = cpp_cabac.get_state();
+                            let (rust_r2, rust_v2, rust_b2) = rust_cabac.get_state();
+                            if (cpp_r2, cpp_v2, cpp_b2) != (rust_r2, rust_v2, rust_b2) {
+                                panic!(
+                                    "State diverged after sig_coeff({},{}) log2={} c_idx={} prev_csbf={} scan=vert:\n\
+                                     C++=({},{},{}) Rust=({},{},{})",
+                                    x, y, log2_size, c_idx, prev_csbf,
+                                    cpp_r2, cpp_v2, cpp_b2, rust_r2, rust_v2, rust_b2
+                                );
+                            }
+                        }
+                    }
+                }
+                println!("  PASSED!");
+            }
+        }
+        println!("\n=== Vertical Scan sig_coeff_flag tests PASSED ===");
+    }
+
+    /// Test that vertical scan swaps last_x and last_y correctly
+    #[test]
+    fn test_vertical_scan_last_sig_swap() {
+        let slice_data: &[u8] = &[
+            0x49, 0xc0, 0xc2, 0xc4, 0x92, 0x61, 0x0c, 0x00,
+            0x16, 0xcc, 0xbe, 0x77, 0x82, 0x8c, 0xcb, 0xfa,
+            0x93, 0x5f, 0xb2, 0x6a, 0x65, 0x34, 0xe6, 0xf8,
+            0xd3, 0xa0, 0x76, 0xcc, 0x39, 0xe8, 0xe0, 0xac,
+        ];
+        let slice_qp = 17;
+
+        let last_xy_init: [u8; 18] = [
+            125, 110, 124, 110, 95, 94, 125, 111, 111,
+            79, 108, 123, 63, 0, 0, 0, 0, 0,
+        ];
+
+        println!("\n=== Testing Vertical Scan last_sig swap ===\n");
+
+        // For vertical scan (scan_idx=2), C++ swaps x and y
+        for log2_size in [2u8, 3u8, 4u8] {
+            for c_idx in [0u8, 1u8] {
+                let mut cpp_cabac_diag = CppCabac::new(slice_data);
+                let mut cpp_cabac_vert = CppCabac::new(slice_data);
+
+                let mut cpp_ctx_x_diag: Vec<_> = last_xy_init.iter()
+                    .map(|&iv| {
+                        let mut ctx = CppContextModel { state: 0, mps: 0 };
+                        unsafe { context_init(&mut ctx, iv, slice_qp); }
+                        ctx
+                    })
+                    .collect();
+                let mut cpp_ctx_y_diag: Vec<_> = last_xy_init.iter()
+                    .map(|&iv| {
+                        let mut ctx = CppContextModel { state: 0, mps: 0 };
+                        unsafe { context_init(&mut ctx, iv, slice_qp); }
+                        ctx
+                    })
+                    .collect();
+                let mut cpp_ctx_x_vert: Vec<_> = last_xy_init.iter()
+                    .map(|&iv| {
+                        let mut ctx = CppContextModel { state: 0, mps: 0 };
+                        unsafe { context_init(&mut ctx, iv, slice_qp); }
+                        ctx
+                    })
+                    .collect();
+                let mut cpp_ctx_y_vert: Vec<_> = last_xy_init.iter()
+                    .map(|&iv| {
+                        let mut ctx = CppContextModel { state: 0, mps: 0 };
+                        unsafe { context_init(&mut ctx, iv, slice_qp); }
+                        ctx
+                    })
+                    .collect();
+
+                // Decode with diagonal scan
+                let diag_result = cpp_cabac_diag.decode_last_sig_xy(
+                    &mut cpp_ctx_x_diag, &mut cpp_ctx_y_diag,
+                    log2_size, c_idx, 0 // diagonal
+                );
+
+                // Decode with vertical scan (same bytes)
+                let vert_result = cpp_cabac_vert.decode_last_sig_xy(
+                    &mut cpp_ctx_x_vert, &mut cpp_ctx_y_vert,
+                    log2_size, c_idx, 2 // vertical
+                );
+
+                // For vertical scan, C++ swaps: result.x = decoded_y, result.y = decoded_x
+                // So: diag.x == vert.y and diag.y == vert.x
+                println!("log2={} c_idx={}: diag=({},{}) vert=({},{}) [expect swap]",
+                    log2_size, c_idx, diag_result.x, diag_result.y, vert_result.x, vert_result.y);
+
+                assert_eq!(diag_result.x, vert_result.y,
+                    "Vertical scan should swap: diag.x={} should equal vert.y={}",
+                    diag_result.x, vert_result.y);
+                assert_eq!(diag_result.y, vert_result.x,
+                    "Vertical scan should swap: diag.y={} should equal vert.x={}",
+                    diag_result.y, vert_result.x);
+            }
+        }
+        println!("\n=== Vertical Scan last_sig swap tests PASSED ===");
+    }
 }
