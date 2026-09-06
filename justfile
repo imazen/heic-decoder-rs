@@ -178,3 +178,8 @@ arm-tier-audit:
 arm-sample-decode fixture output:
     CARGO_BUILD_JOBS=4 RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" nice -n19 cargo build --release --example heaptrack_decode --features backend-rust,std
     RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" python3 -c 'import subprocess; f=open("{{output}}.run.log","w"); p=subprocess.Popen(["nice","-n19","./target/release/examples/heaptrack_decode","{{fixture}}","200"],stdout=f,stderr=f); subprocess.run(["sample",str(p.pid),"5","1","-file","{{output}}.sample.txt"],check=True); raise SystemExit(p.wait())'
+
+# Capture exact first-frame RGBA bytes for before/after decoder comparisons.
+arm-capture-rgba fixture output:
+    CARGO_BUILD_JOBS=4 TMPDIR="$HOME/tmp" nice -n19 cargo build --release --example heaptrack_decode --features backend-rust,std
+    HEIC_PROFILE_RGBA_OUT="{{output}}" RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" nice -n19 ./target/release/examples/heaptrack_decode "{{fixture}}" 1

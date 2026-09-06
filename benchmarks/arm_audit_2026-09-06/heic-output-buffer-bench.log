@@ -1,0 +1,45 @@
+   Compiling heic v0.2.0 (/Users/lilith/work/zen/heic)
+    Finished `bench` profile [optimized] target(s) in 5.83s
+     Running benches/tier_isolation.rs (target/release/deps/tier_isolation-614ba8951e9c7e1f)
+/Users/lilith/work/codec-artifacts/heic-arm-audit/example.heic: 1280x854 exact tier pixels
+/Users/lilith/work/codec-artifacts/heic-arm-audit/C002.heic: 1280x720 exact tier pixels
+/Users/lilith/work/codec-artifacts/heic-arm-audit/image4.heic: 700x476 exact tier pixels
+[zenbench] calibration: int=0.27ns/iter mem_bw=117.2GiB/s mem_lat=7.4ns
+[zenbench] timer resolution: 41ns, loop overhead: 0.22ns/iter, TSC: 1.000 ticks/ns (invariant)
+[zenbench] results → /Users/lilith/tmp/zenbench/zenbench-1788739177-6126.txt
+
+═══════════════════════════════════════════════════════════════
+  zenbench  1788739177-6126
+  git: ed85f07fae5df52668a2e50adf3ed38aa2a5b18b
+═══════════════════════════════════════════════════════════════
+
+  decode/example.heic  124 rounds × 1 calls
+             mean ±mad ms  95% CI vs base   ops/s
+  ├─ native   40.4 ±1.8ms  [40.0–40.8]ms    27.1M
+  ╰─ scalar   40.9 ±3.6ms  [-1.0%–+3.3%]    26.7M [1]
+
+  native  ██████████████████████████████████████████████████████████ 27.1 Mops/s
+  scalar  █████████████████████████████████████████████████████████ 26.7 Mops/s
+  [1] CI crosses zero
+
+  decode/C002.heic  200 rounds × 1 calls
+             mean ±mad ms  95% CI vs base   ops/s
+  ├─ native   22.9 ±0.8ms  [22.7–23.2]ms    40.2M
+  ╰─ scalar   23.3 ±2.7ms  [-1.1%–+4.0%]    39.6M [1]
+
+  native  ██████████████████████████████████████████████████████████ 40.2 Mops/s
+  scalar  █████████████████████████████████████████████████████████ 39.6 Mops/s
+  [1] CI crosses zero
+
+  decode/image4.heic  200 rounds × 1 calls
+             mean ±mad ms  95% CI vs base   ops/s
+  ├─ native   10.1 ±1.1ms  [9.9–10.2]ms     33.2M
+  ╰─ scalar   10.2 ±1.2ms  [-1.0%–+3.4%]    32.8M [1]
+
+  native  ██████████████████████████████████████████████████████████ 33.2 Mops/s
+  scalar  █████████████████████████████████████████████████████████ 32.8 Mops/s
+  [1] CI crosses zero
+
+  total: 76.2s  (8 noisy rounds)
+═══════════════════════════════════════════════════════════════
+  filter: cargo bench -- --group=NAME  format: --format=llm|csv|md|json

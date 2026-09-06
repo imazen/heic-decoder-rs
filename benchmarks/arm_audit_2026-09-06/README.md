@@ -80,3 +80,23 @@ residual/CABAC work and repeated coefficient-buffer copies; it does not establis
 a universal ceiling on HEIC optimization. The older CLAUDE.md claims that ARM
 4:4:4 stays scalar and that speedup is capped at 2% have been corrected against
 current dispatch and the measured limits.
+
+## Caller-owned residual buffer
+
+After the sampled copy sites were identified, residual parsing was changed to
+write into a freshly zeroed caller-owned `CoeffBuffer` and return only the
+transform-skip flag. This is an internal function in a private module; the
+public API and coefficient arithmetic are unchanged. ARM release assembly
+no longer contains the three 2052-byte return copies.
+
+All three retained fixtures produce byte-identical RGBA8 before and after the
+change (`just arm-capture-rgba`). 81 heic and 26 heic-core library tests pass
+with backend-rust,std; strict library/test clippy passes. The separate earlier
+108-test run includes the `_dev` residual regression.
+
+Native whole-decode means from separate before/after builds are 45.2 → 40.4 ms
+(example), 24.5 → 22.9 ms (C002), and 10.4 → 10.1 ms (image4). These are not
+paired before/after confidence intervals. All three new native/scalar paired
+intervals cross zero: the copy change benefits both dispatch paths. The
+76.2-second run reports eight noisy rounds. The log's git header is parent
+`ed85f07f`; the measured source includes this commit's output-buffer change.

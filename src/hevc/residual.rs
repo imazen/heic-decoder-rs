@@ -193,7 +193,8 @@ impl CoeffBuffer {
     }
 }
 
-/// Decode residual coefficients for a transform unit
+/// Decode residual coefficients into a freshly zeroed buffer for this transform unit.
+/// Returns whether transform skip is enabled.
 /// Debug counter to identify specific TU calls
 pub static DEBUG_RESIDUAL_COUNTER: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
@@ -210,7 +211,8 @@ pub fn decode_residual(
     transform_skip_enabled: bool,
     _x0: u32,
     _y0: u32,
-) -> Result<(CoeffBuffer, bool)> {
+    buffer: &mut CoeffBuffer,
+) -> Result<bool> {
     DEBUG_RESIDUAL_COUNTER.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
     // SE trace for differential testing against libde265
@@ -236,7 +238,6 @@ pub fn decode_residual(
     let rc_trace = false;
     let _rcp = "RCX";
 
-    let mut buffer = CoeffBuffer::new(log2_size);
     let size = 1u32 << log2_size;
 
     // Decode transform_skip_flag (H.265 7.3.8.11)
@@ -742,7 +743,7 @@ pub fn decode_residual(
         let (_byte_pos, _, _) = cabac.get_position();
         rc_eprintln!("{_rcp}_END range={} byte={}", _range, _byte_pos);
     }
-    Ok((buffer, transform_skip))
+    Ok(transform_skip)
 }
 
 /// Get sub-block scan order

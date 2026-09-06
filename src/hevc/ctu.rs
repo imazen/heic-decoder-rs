@@ -2424,7 +2424,8 @@ impl<'a> SliceContext<'a> {
         frame: &mut DecodedFrame,
     ) -> Result<()> {
         // Decode coefficients via CABAC
-        let (mut coeff_buf, transform_skip) = residual::decode_residual(
+        let mut coeff_buf = residual::CoeffBuffer::new(log2_size);
+        let transform_skip = residual::decode_residual(
             &mut self.cabac,
             &mut self.ctx,
             log2_size,
@@ -2435,6 +2436,7 @@ impl<'a> SliceContext<'a> {
             self.pps.transform_skip_enabled_flag,
             x0,
             y0,
+            &mut coeff_buf,
         )?;
 
         if coeff_buf.is_zero() {

@@ -1,0 +1,170 @@
+   Compiling bytemuck v1.25.2
+   Compiling archmage v0.9.28
+   Compiling bitflags v2.13.1
+   Compiling memchr v2.8.3
+   Compiling thiserror v2.0.20
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling anstyle-query v1.1.5
+   Compiling rgb v0.8.53
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling colorchoice v1.0.5
+   Compiling magetypes v0.9.28
+   Compiling zenpixels v0.2.16
+   Compiling serde v1.0.229
+   Compiling anstream v1.0.0
+   Compiling errno v0.3.14
+   Compiling strsim v0.11.1
+   Compiling clap_builder v4.6.6
+   Compiling serde_json v1.0.151
+   Compiling rustix v1.1.4
+   Compiling zencodec v0.1.26
+   Compiling garb v0.2.8
+   Compiling wide v1.7.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling zenpredict v0.2.1 (https://github.com/imazen/zenanalyze?rev=9a9be8200f26f643b45338711426cacae820f3a1#9a9be820)
+   Compiling objc2-io-kit v0.3.2
+   Compiling clap v4.6.6
+   Compiling zenflate v0.3.6
+   Compiling v_frame v0.5.2
+   Compiling linear-srgb v0.6.12
+   Compiling zenblend v0.1.3
+   Compiling sysinfo v0.36.1
+   Compiling ciborium v0.2.2
+   Compiling tinytemplate v1.2.1
+   Compiling zenpixels-convert v0.2.16
+   Compiling zensim v0.3.0 (https://github.com/imazen/zensim?rev=493c91cdd7af#493c91cd)
+   Compiling zenresize v0.3.1
+   Compiling fs4 v1.1.0
+   Compiling terminal_size v0.4.4
+   Compiling criterion v0.8.2
+   Compiling zenpng v0.1.4
+   Compiling png v0.18.1
+   Compiling zenbench v0.1.9
+   Compiling yuvxyb-math v0.1.1
+   Compiling yuvxyb v0.5.0
+   Compiling fast-ssim2 v0.8.2
+   Compiling zensim-regress v0.4.0 (https://github.com/imazen/zensim?rev=493c91cdd7af#493c91cd)
+   Compiling heic-core v0.2.0 (/Users/lilith/work/zen/heic/heic-core)
+   Compiling zencodec-testkit v0.1.0
+   Compiling heic v0.2.0 (/Users/lilith/work/zen/heic)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.06s
+     Running unittests src/lib.rs (target/debug/deps/heic-24ea0c12c69d7fc4)
+
+running 81 tests
+test alloc_util::tests::codec_default_keeps_site_default_true ... ok
+test alloc_util::tests::codec_default_keeps_site_default_false ... ok
+test alloc_util::tests::explicit_fallible_overrides_any_site_default ... ok
+test alloc_util::tests::explicit_infallible_overrides_any_site_default ... ok
+test alloc_util::tests::vec_with_capacity_reserves_and_is_empty ... ok
+test alloc_util::tests::vec_with_capacity_fallible_oom_returns_err ... ok
+test auxiliary::tests::test_auxiliary_type_from_urn_depth ... ok
+test auxiliary::tests::test_auxiliary_type_from_urn_apple_types ... ok
+test auxiliary::tests::test_auxiliary_type_from_urn_alpha ... ok
+test auxiliary::tests::test_auxiliary_type_from_urn_empty ... ok
+test auxiliary::tests::test_auxiliary_type_from_urn_unknown ... ok
+test auxiliary::tests::test_auxiliary_type_roundtrip ... ok
+test auxiliary::tests::test_depth_representation_type_from_code ... ok
+test auxiliary::tests::test_depth_representation_type_roundtrip ... ok
+test auxiliary::tests::test_display_auxiliary_type ... ok
+test auxiliary::tests::test_display_depth_representation_type ... ok
+test auxiliary::tests::test_parse_depth_representation_info_empty ... ok
+test auxiliary::tests::test_parse_depth_representation_info_truncated ... ok
+test auxiliary::tests::test_parse_depth_representation_info_type_only ... ok
+test auxiliary::tests::test_parse_depth_representation_info_with_all_values ... ok
+test auxiliary::tests::test_parse_depth_representation_info_with_z_near_far ... ok
+test auxiliary::tests::test_pow2_f64 ... ok
+test backend::tests::extract_sps_metadata_ignores_non_sps ... ok
+test backend::tests::extract_sps_metadata_no_nals_returns_default ... ok
+test backend::tests::recommended_includes_rust_when_compiled ... ok
+test backend::tests::rust_backend_name ... ok
+test decode::tests::decode_budget_shared_counter_across_depths ... ok
+test decode::tests::default_limits_reject_large_dimensions ... ok
+test error::error_tests::from_conversions ... ok
+test error::error_tests::heic_core_hevc_error_maps_known_variants ... ok
+test error::error_tests::heic_error_display_and_debug_all_variants ... ok
+test error::error_tests::hevc_error_display_and_debug_all_variants ... ok
+test error::error_tests::probe_error_display ... ok
+test hevc::debug::tests::test_checksum ... ok
+test hevc::dpb::tests::test_dpb_insert_and_find ... ok
+test decode::tests::decode_budget_charges_until_exhausted ... ok
+test hevc::dpb::tests::test_dpb_active_pocs ... ok
+test hevc::dpb::tests::test_dpb_new_empty ... ok
+test hevc::dpb::tests::test_dpb_mark_unused ... ok
+test hevc::intra::tests::test_intra_angles ... ok
+test hevc::intra::tests::test_mpm_candidates_different ... ok
+test hevc::intra::tests::test_mpm_candidates_same_dc ... ok
+test hevc::mc::tests::test_blend_uni ... ok
+test hevc::mc::tests::test_chroma_filter_sum ... ok
+test hevc::mc::tests::test_luma_filter_sum ... ok
+test hevc::mc::tests::test_mc_luma_bipred_blend ... ok
+test hevc::mc::tests::test_mc_luma_hpel_gradient ... ok
+test hevc::mc::tests::test_mc_luma_integer_pos ... ok
+test hevc::mc::tests::test_mc_luma_vpel_constant ... ok
+test hevc::refpic::tests::test_poc_derivation_increment ... ok
+test hevc::refpic::tests::test_poc_derivation_irap ... ok
+test hevc::refpic::tests::test_poc_derivation_wrap ... ok
+test hevc::refpic::tests::test_short_term_rps_default ... ok
+test hevc::slice::tests::test_ceil_log2 ... ok
+test hevc::slice::tests::test_intra_pred_mode ... ok
+test hevc::tests::ep_offset_conversion_round_trip ... ok
+test hevc::tests::ep_positions_all_after_header ... ok
+test hevc::tests::ep_positions_no_ep_bytes ... ok
+test hevc::tests::ep_positions_some_in_header ... ok
+test hevc::tests::missing_sps_error_is_located_in_decode_nal_units ... ok
+test hevc::tests::public_decode_returns_the_same_payload ... ok
+test hevc::tests::truncated_sps_error_is_located_inside_the_parser ... ok
+test hevc::transform::tests::dequantize_high_qp_high_depth_no_overflow ... ok
+test hevc::transform::tests::idct16_simd_matches_scalar ... ok
+test hevc::transform::tests::dequantize_scaled_runs_all_sizes ... ok
+test hevc::transform::tests::idct8_simd_matches_scalar ... ok
+test hevc::transform::tests::idct_dc_only_is_uniform ... ok
+test hevc::transform::tests::inverse_transform_dispatch_all ... ok
+test hevc::transform::tests::test_idct4_dc_only ... ok
+test hevc::transform::tests::idct32_simd_matches_scalar ... ok
+test hevc::transform::tests::test_idst4_dc_only ... ok
+test hevc::transform::tests::test_idst4_with_real_coeffs ... ok
+test hevc::transforms::tests::mirrors_are_involutions_and_compose_to_180 ... ok
+test hevc::transforms::tests::rotate_180_is_double_90_and_involution ... ok
+test hevc::transforms::tests::rotate_270_inverts_90 ... ok
+test hevc::transforms::tests::rotate_90_swaps_dims_and_roundtrips ... ok
+test limits_default_tests::default_is_safe_fallback_not_none ... ok
+test limits_default_tests::default_matches_the_omitted_limits_decode_fallback ... ok
+test limits_default_tests::default_rejects_over_256mp_dimension ... ok
+test limits_default_tests::explicit_all_none_is_unbounded ... ok
+test hevc::transform::tests::dequantize_full_grid_no_overflow ... ok
+
+test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/heic_core-43bec43fde999f55)
+
+running 26 tests
+test color_convert::tests::convert_420_red_bt709_limited ... ok
+test color_convert::tests::convert_420_white_bt709_limited ... ok
+test color_convert::tests::convert_420_black_bt709_limited ... ok
+test color_convert::tests::convert_420_gray_bt601_full ... ok
+test color_convert::tests::convert_444_matches_scalar_reference ... ok
+test frame::tests::cropped_height_saturates_on_oversized_crop ... ok
+test frame::tests::cropped_width_saturates_on_oversized_crop ... ok
+test frame::tests::limited_range_white_black_all_depths ... ok
+test frame::tests::set_crop_clamps_oversized_offsets ... ok
+test frame::tests::total_cropped_bytes_no_u32_overflow ... ok
+test frame::tests::total_cropped_pixels_near_u32_max ... ok
+test frame::tests::total_cropped_pixels_no_u32_overflow ... ok
+test frame::tests::total_cropped_pixels_small_frame ... ok
+test nal::tests::hvcc_bad_length_size ... ok
+test nal::tests::hvcc_empty_input ... ok
+test nal::tests::hvcc_one_byte_length_prefix ... ok
+test nal::tests::hvcc_truncated_returns_none ... ok
+test nal::tests::hvcc_two_byte_length_prefix ... ok
+test nal::tests::hvcc_two_nals_4byte_length ... ok
+test nal::tests::hvcc_zero_length_nal ... ok
+test nal::tests::parameter_sets_concat ... ok
+test nal::tests::parameter_sets_empty_input ... ok
+test sps::tests::default_main_profile_has_no_rext ... ok
+test sps::tests::min_cb_log2_size_y_formula ... ok
+test sps::tests::pic_width_in_min_cbs_y_example_heic ... ok
+test color_convert_neon::tests_444_neon::neon_444_matches_scalar_exhaustive ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
