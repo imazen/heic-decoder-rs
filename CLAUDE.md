@@ -438,14 +438,14 @@ let thumb: Option<DecodeOutput> = DecoderConfig::new().decode_thumbnail(&data, P
   - Tile scan order: boundary detection, CABAC reinit at tile boundaries with entry point offsets
   - Remaining UNINIT vectors: TILES_A/B (complex tile CABAC desync within tiles), DELTAQP_A (PCM + complex content), DBLK_A/B (multi-slice inter desync), SDH_A (cu_qp_delta desync), MVDL1ZERO (scattered inter desync)
   - Deferred: SIMD MC (Phase 7), weighted prediction application
-- 4:4:4 chroma: decodes correctly (61.9dB). Color conversion now has an AVX2
-  path (`convert_444_to_rgb`, 2026-06-01): x86 `to_rgb` 4.46ms→1.69ms (2.64x) on
-  nokia_444. **aarch64 keeps scalar by measurement** (Hetzner Ampere Altra: the
-  core's scalar auto-vectorization at 6.12ms beat both a naive 8px NEON, 12.1ms,
-  and a 16px `vst3q`-interleaved NEON, 7.23ms), so the tier is `[v3, scalar]`.
-  A NEON win likely needs i16-domain math or a stronger ARM core (Apple Silicon,
-  untested here) — re-measure before adding a NEON 444 path. Bit-exact vs scalar
-  on both arches (`convert_444_matches_scalar_reference`).
+- 4:4:4 color conversion dispatches through `[v3, neon, scalar]` in
+  `heic-core/src/color_convert.rs`. The NEON implementation uses 16-pixel
+  interleaved stores; the earlier claim that ARM stays scalar is stale.
+  On Apple M4 Pro, the 2026-09-06 paired audit favors NEON for 64² through
+  4096² and ties at 17². These are limited-range BT.709 strided-input
+  measurements, not claims about all machines or matrix/range combinations.
+  Full results and exact-pixel checks:
+  [ARM audit](benchmarks/arm_audit_2026-09-06/README.md).
 - Dependent slice segments: not supported (2 vectors fail)
 - **Cancellation reaches the primary-image decode only; the auxiliary decodes
   are uncancellable** (found 2026-08-29 while closing #22). `decode_gain_map`,
@@ -860,10 +860,14 @@ decode with the NEON token enabled vs forced off:
 | image2 | 331.64 ms | 337.20 ms | +1.7%  |
 | C012   |  23.70 ms |  23.79 ms | +0.4%  |
 
-So the SIMD tier moves total decode by under 2%, and on image1 it is fractionally
-negative. Time is dominated by inherently serial work (bitstream / CABAC), not by
-the vector kernels. **Do not invest in NEON kernel work here expecting end-to-end
-gains — the ceiling is ~2%.** Profile where decode time actually goes first.
+Those three historical comparisons measured less than 2% change from toggling
+the existing dispatch paths. They do not establish a ceiling for future work:
+NEON IDCT16 and IDCT32 still call scalar implementations in
+`src/hevc/transform_simd_neon.rs`. The 2026-09-06 Apple M4 Pro audit also found
+no reliable whole-decode gain on its three fixtures; see
+[the native audit](benchmarks/arm_audit_2026-09-06/README.md). Profile the actual
+hot paths before choosing an optimization; tier timing alone does not identify
+the source of decode cost.
 
 Two caveats on reading that table:
 - NEON is BASELINE on aarch64, so the "scalar" arm is still autovectorized by

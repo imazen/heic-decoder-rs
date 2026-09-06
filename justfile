@@ -173,3 +173,8 @@ arm-residual-check:
 # Requires caller-provided HEIC_BENCH_INPUTS (colon-separated fixture paths).
 arm-tier-audit:
     CARGO_BUILD_JOBS=4 RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" nice -n 19 cargo bench --bench tier_isolation --features backend-rust,std,_dev
+
+# Apple sample profiler; explicit fixture, 200 complete decodes, retained output.
+arm-sample-decode fixture output:
+    CARGO_BUILD_JOBS=4 RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" nice -n19 cargo build --release --example heaptrack_decode --features backend-rust,std
+    RAYON_NUM_THREADS=4 OMP_NUM_THREADS=4 TMPDIR="$HOME/tmp" python3 -c 'import subprocess; f=open("{{output}}.run.log","w"); p=subprocess.Popen(["nice","-n19","./target/release/examples/heaptrack_decode","{{fixture}}","200"],stdout=f,stderr=f); subprocess.run(["sample",str(p.pid),"5","1","-file","{{output}}.sample.txt"],check=True); raise SystemExit(p.wait())'

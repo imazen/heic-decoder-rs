@@ -14,6 +14,8 @@
 //!   heaptrack ./target/release/examples/heaptrack_decode                 # default fixture
 //!   heaptrack ./target/release/examples/heaptrack_decode <file.heic> [iters]
 //!
+//! Set `HEIC_PROFILE_RGBA_OUT` to retain the first decoded RGBA8 buffer for exact comparisons.
+//!
 //! Then inspect:
 //!   heaptrack_print heaptrack.heaptrack_decode.*.zst | less
 //!
@@ -102,6 +104,11 @@ fn main() {
                 eprintln!("decode iteration {i} failed: {e}");
                 std::process::exit(1);
             });
+        if i == 0
+            && let Some(path) = std::env::var_os("HEIC_PROFILE_RGBA_OUT")
+        {
+            std::fs::write(path, &output.data).expect("write explicit RGBA reference output");
+        }
         total_pixels += u64::from(output.width) * u64::from(output.height);
         // Consume the decoded buffer so the optimizer can't elide the decode or the
         // allocation of the output Vec.

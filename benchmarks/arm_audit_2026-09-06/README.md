@@ -70,3 +70,13 @@ Fixtures are preserved outside git under
 
 Run `HEIC_BENCH_INPUTS=<colon-separated paths> just arm-tier-audit`.
 Strict bench clippy passed. Full measurement took 172.4 seconds.
+
+
+## Native sampling
+
+The example fixture completed 200 RGBA8 decodes. Sampled costs and assembly
+provenance are in [profile.pointer.md](profile.pointer.md). The profile identifies
+residual/CABAC work and repeated coefficient-buffer copies; it does not establish
+a universal ceiling on HEIC optimization. The older CLAUDE.md claims that ARM
+4:4:4 stays scalar and that speedup is capped at 2% have been corrected against
+current dispatch and the measured limits.
